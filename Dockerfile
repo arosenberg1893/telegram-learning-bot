@@ -9,7 +9,7 @@ COPY src ./src
 RUN mvn clean package -DskipTests
 
 # ---- Этап выполнения ----
-FROM openjdk:21-slim
+FROM openjdk:21-jdk-slim
 WORKDIR /app
 # Копируем собранный jar-файл из этапа сборки
 COPY --from=build /app/target/*.jar app.jar
