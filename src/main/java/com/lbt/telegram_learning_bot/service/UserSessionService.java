@@ -2,6 +2,7 @@ package com.lbt.telegram_learning_bot.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lbt.telegram_learning_bot.bot.BotState;
 import com.lbt.telegram_learning_bot.bot.UserContext;
 import com.lbt.telegram_learning_bot.entity.UserSession;
 import com.lbt.telegram_learning_bot.repository.UserSessionRepository;
@@ -9,12 +10,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import com.lbt.telegram_learning_bot.bot.BotState;
-
 
 import java.util.ArrayList;
-import java.util.Optional;
-import static com.lbt.telegram_learning_bot.util.Constants.*;
 
 @Slf4j
 @Service
