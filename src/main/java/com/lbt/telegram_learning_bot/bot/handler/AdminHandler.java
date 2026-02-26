@@ -12,21 +12,21 @@ import com.lbt.telegram_learning_bot.exception.InvalidJsonException;
 import com.lbt.telegram_learning_bot.repository.*;
 import com.lbt.telegram_learning_bot.service.CourseImportService;
 import com.lbt.telegram_learning_bot.service.NavigationService;
-import com.lbt.telegram_learning_bot.service.PaginationResult;
 import com.lbt.telegram_learning_bot.service.UserSessionService;
 import com.pengrad.telegrambot.TelegramBot;
 import com.pengrad.telegrambot.model.Message;
 import com.pengrad.telegrambot.model.request.InlineKeyboardButton;
 import com.pengrad.telegrambot.model.request.InlineKeyboardMarkup;
-import com.pengrad.telegrambot.request.*;
-import com.pengrad.telegrambot.response.SendResponse;
+import com.pengrad.telegrambot.request.GetFile;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.io.ByteArrayInputStream;
-import java.io.File;
 import java.io.InputStream;
-import java.nio.file.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -616,5 +616,17 @@ public class AdminHandler extends BaseHandler {
     }
     public boolean isAdmin(Long userId) {
         return adminUserRepository.existsByUserId(userId);
+    }
+
+    public void handleAdminCoursesPage(Long userId, Integer messageId, String source, int page) {
+        showEditCoursesPage(userId, messageId, page);
+    }
+
+    public void handleAdminSectionsPage(Long userId, Integer messageId, Long courseId, int page) {
+        showEditCourseSectionsPage(userId, messageId, courseId, page);
+    }
+
+    public void handleAdminTopicsPage(Long userId, Integer messageId, Long sectionId, int page) {
+        showEditTopicsPage(userId, messageId, sectionId, page);
     }
 }

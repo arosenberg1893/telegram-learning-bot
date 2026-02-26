@@ -156,7 +156,7 @@ public class KeyboardBuilder {
             });
         }
 
-        addPaginationButtons(rows, result, CALLBACK_COURSES_PAGE, source);
+        addPaginationButtons(rows, result, CALLBACK_ADMIN_COURSES_PAGE, source);
         rows.add(new InlineKeyboardButton[]{new InlineKeyboardButton(BUTTON_MAIN_MENU).callbackData(CALLBACK_MAIN_MENU)});
 
         return new InlineKeyboardMarkup(rows.toArray(new InlineKeyboardButton[0][]));
@@ -171,7 +171,7 @@ public class KeyboardBuilder {
             });
         }
 
-        addPaginationButtons(rows, result, CALLBACK_SECTIONS_PAGE, courseId.toString());
+        addPaginationButtons(rows, result, CALLBACK_ADMIN_SECTIONS_PAGE, courseId.toString());
         rows.add(new InlineKeyboardButton[]{new InlineKeyboardButton(BUTTON_MAIN_MENU).callbackData(CALLBACK_BACK_TO_COURSES)});
 
         return new InlineKeyboardMarkup(rows.toArray(new InlineKeyboardButton[0][]));
@@ -186,7 +186,7 @@ public class KeyboardBuilder {
             });
         }
 
-        addPaginationButtons(rows, result, CALLBACK_TOPICS_PAGE, sectionId.toString());
+        addPaginationButtons(rows, result, CALLBACK_ADMIN_TOPICS_PAGE, sectionId.toString());
         rows.add(new InlineKeyboardButton[]{new InlineKeyboardButton(BUTTON_MAIN_MENU).callbackData(CALLBACK_BACK_TO_SECTIONS)});
 
         return new InlineKeyboardMarkup(rows.toArray(new InlineKeyboardButton[0][]));

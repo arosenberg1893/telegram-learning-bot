@@ -211,4 +211,8 @@ public final class Constants {
     public static final String MSG_WRONG = "❌ Неверно.";
 
     public static final String TOO_MANY_REQUEST = "⏳ Слишком много запросов. Пожалуйста, подождите минуту.";
+
+    public static final String CALLBACK_ADMIN_COURSES_PAGE = "admin_courses_page";
+    public static final String CALLBACK_ADMIN_SECTIONS_PAGE = "admin_sections_page";
+    public static final String CALLBACK_ADMIN_TOPICS_PAGE = "admin_topics_page";
 }

@@ -278,6 +278,18 @@ public class TelegramBotHandler extends BaseHandler {
                     adminHandler.promptCurrentImage(userId, messageId);
                 }
                 break;
+            case CALLBACK_ADMIN_COURSES_PAGE:
+                if (!isAdmin(userId)) return;
+                adminHandler.handleAdminCoursesPage(userId, messageId, parts[1], Integer.parseInt(parts[2]));
+                break;
+            case CALLBACK_ADMIN_SECTIONS_PAGE:
+                if (!isAdmin(userId)) return;
+                adminHandler.handleAdminSectionsPage(userId, messageId, Long.parseLong(parts[1]), Integer.parseInt(parts[2]));
+                break;
+            case CALLBACK_ADMIN_TOPICS_PAGE:
+                if (!isAdmin(userId)) return;
+                adminHandler.handleAdminTopicsPage(userId, messageId, Long.parseLong(parts[1]), Integer.parseInt(parts[2]));
+                break;
 
             // статистика и ошибки
             case CALLBACK_STATISTICS:
