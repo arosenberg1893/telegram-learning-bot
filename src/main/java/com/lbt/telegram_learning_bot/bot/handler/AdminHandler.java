@@ -268,7 +268,7 @@ public class AdminHandler extends BaseHandler {
                         new InlineKeyboardButton(BUTTON_TOPICS).callbackData("edit_section_action:topics")
                 }
         );
-        keyboard.addRow(new InlineKeyboardButton(BUTTON_BACK).callbackData(CALLBACK_BACK_TO_SECTIONS));
+        keyboard.addRow(new InlineKeyboardButton(BUTTON_BACK).callbackData(CALLBACK_ADMIN_BACK_TO_SECTIONS));
         editMessage(userId, messageId, text, keyboard);
         sessionService.updateSessionState(userId, BotState.EDIT_SECTION_NAME_DESC);
     }
@@ -295,7 +295,7 @@ public class AdminHandler extends BaseHandler {
 
         editMessage(userId, messageId,
                 MSG_SEND_JSON_TOPIC,
-                createCancelKeyboardWithBackToTopics());
+                createAdminCancelKeyboardWithBackToTopics());
         sessionService.updateSessionState(userId, BotState.EDIT_TOPIC_JSON);
     }
 

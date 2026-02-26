@@ -1,6 +1,8 @@
 package com.lbt.telegram_learning_bot.bot.handler;
 
 import com.lbt.telegram_learning_bot.bot.UserContext;
+import com.lbt.telegram_learning_bot.entity.BlockImage;
+import com.lbt.telegram_learning_bot.entity.QuestionImage;
 import com.lbt.telegram_learning_bot.repository.AdminUserRepository;
 import com.lbt.telegram_learning_bot.service.NavigationService;
 import com.lbt.telegram_learning_bot.service.UserSessionService;
@@ -10,17 +12,17 @@ import com.pengrad.telegrambot.model.request.InlineKeyboardButton;
 import com.pengrad.telegrambot.model.request.InlineKeyboardMarkup;
 import com.pengrad.telegrambot.model.request.InputMedia;
 import com.pengrad.telegrambot.model.request.InputMediaPhoto;
-import com.pengrad.telegrambot.request.*;
+import com.pengrad.telegrambot.request.DeleteMessage;
+import com.pengrad.telegrambot.request.EditMessageText;
+import com.pengrad.telegrambot.request.SendMediaGroup;
+import com.pengrad.telegrambot.request.SendMessage;
 import com.pengrad.telegrambot.response.SendResponse;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import com.lbt.telegram_learning_bot.entity.BlockImage;
-import com.lbt.telegram_learning_bot.entity.QuestionImage;
+
 import java.io.File;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -283,5 +285,11 @@ public abstract class BaseHandler {
             long years = days / 365;
             return years + " " + (years == 1 ? "год" : "года") + " назад";
         }
+    }
+
+    protected InlineKeyboardMarkup createAdminCancelKeyboardWithBackToTopics() {
+        return new InlineKeyboardMarkup(
+                new InlineKeyboardButton[]{new InlineKeyboardButton(BUTTON_CANCEL).callbackData(CALLBACK_ADMIN_BACK_TO_TOPICS)}
+        );
     }
 }

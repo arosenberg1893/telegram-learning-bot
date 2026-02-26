@@ -215,4 +215,7 @@ public final class Constants {
     public static final String CALLBACK_ADMIN_COURSES_PAGE = "admin_courses_page";
     public static final String CALLBACK_ADMIN_SECTIONS_PAGE = "admin_sections_page";
     public static final String CALLBACK_ADMIN_TOPICS_PAGE = "admin_topics_page";
+
+    public static final String CALLBACK_ADMIN_BACK_TO_SECTIONS = "admin_back_to_sections";
+    public static final String CALLBACK_ADMIN_BACK_TO_TOPICS = "admin_back_to_topics";
 }

@@ -1,6 +1,9 @@
 package com.lbt.telegram_learning_bot.bot;
 
-import com.lbt.telegram_learning_bot.bot.handler.*;
+import com.lbt.telegram_learning_bot.bot.handler.AdminHandler;
+import com.lbt.telegram_learning_bot.bot.handler.BaseHandler;
+import com.lbt.telegram_learning_bot.bot.handler.CourseNavigationHandler;
+import com.lbt.telegram_learning_bot.bot.handler.TestHandler;
 import com.lbt.telegram_learning_bot.repository.AdminUserRepository;
 import com.lbt.telegram_learning_bot.service.NavigationService;
 import com.lbt.telegram_learning_bot.service.PdfExportService;
@@ -16,7 +19,6 @@ import com.pengrad.telegrambot.request.AnswerCallbackQuery;
 import com.pengrad.telegrambot.request.GetChat;
 import com.pengrad.telegrambot.request.SendDocument;
 import jakarta.annotation.PostConstruct;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -289,6 +291,14 @@ public class TelegramBotHandler extends BaseHandler {
             case CALLBACK_ADMIN_TOPICS_PAGE:
                 if (!isAdmin(userId)) return;
                 adminHandler.handleAdminTopicsPage(userId, messageId, Long.parseLong(parts[1]), Integer.parseInt(parts[2]));
+                break;
+            case CALLBACK_ADMIN_BACK_TO_SECTIONS:
+                if (!isAdmin(userId)) return;
+                adminHandler.handleBackToSectionsFromEdit(userId, messageId);
+                break;
+            case CALLBACK_ADMIN_BACK_TO_TOPICS:
+                if (!isAdmin(userId)) return;
+                adminHandler.handleBackToTopicsFromEdit(userId, messageId);
                 break;
 
             // статистика и ошибки
