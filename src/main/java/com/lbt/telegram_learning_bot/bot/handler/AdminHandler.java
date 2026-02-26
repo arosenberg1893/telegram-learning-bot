@@ -465,35 +465,12 @@ public class AdminHandler extends BaseHandler {
 
         } catch (InvalidJsonException e) {
             log.warn("Topic JSON validation error: {}", e.getMessage());
-            UserContext context = sessionService.getCurrentContext(userId);
-            Long topicId = context.getEditingTopicId();
-            Long sectionId = null;
-            if (topicId != null) {
-                Topic topic = topicRepository.findById(topicId).orElse(null);
-                if (topic != null) {
-                    sectionId = topic.getSection().getId();
-                }
-            }
-            Integer page = context.getAdminTopicsPage();
-            if (sectionId == null) {
-                // Если не удалось определить раздел – возвращаем в главное меню
-                sendMessage(userId, e.getMessage(), createBackToMainKeyboard());
-                return;
-            }
-            String backCallback = CALLBACK_ADMIN_BACK_TO_TOPICS + ":" + sectionId + ":" + page;
-            InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup(
-                    new InlineKeyboardButton[]{new InlineKeyboardButton(BUTTON_RETRY).callbackData(CALLBACK_RETRY)},
-                    new InlineKeyboardButton[]{new InlineKeyboardButton(BUTTON_CANCEL).callbackData(backCallback)}
-            );
-            sendMessage(userId, e.getMessage(), keyboard);
+            if (progressMessageId != null) deleteMessage(userId, progressMessageId);
+            sendJsonErrorWithBackToTopics(userId, e.getMessage());
         } catch (Exception e) {
             log.error("Error importing topic from JSON", e);
-            // Здесь тоже можно использовать ту же логику, но пока оставим общую ошибку
-            sendMessage(userId, MSG_JSON_PARSE_ERROR, createRetryOrCancelKeyboard());
-        } finally {
-            if (progressMessageId != null) {
-                deleteMessage(userId, progressMessageId);
-            }
+            if (progressMessageId != null) deleteMessage(userId, progressMessageId);
+            sendJsonErrorWithBackToTopics(userId, MSG_JSON_PARSE_ERROR);
         }
     }
 
@@ -683,5 +660,31 @@ public class AdminHandler extends BaseHandler {
 
     public void handleBackToTopicsFromEdit(Long userId, Integer messageId, Long sectionId, int page) {
         showEditTopicsPage(userId, messageId, sectionId, page);
+    }
+
+    private void sendJsonErrorWithBackToTopics(Long userId, String errorMessage) {
+        UserContext context = sessionService.getCurrentContext(userId);
+        Long topicId = context.getEditingTopicId();
+        Long sectionId = null;
+        if (topicId != null) {
+            Topic topic = topicRepository.findById(topicId).orElse(null);
+            if (topic != null) {
+                sectionId = topic.getSection().getId();
+            }
+        }
+        Integer page = context.getAdminTopicsPage();
+
+        if (sectionId == null) {
+            // Если не удалось определить раздел – отправляем в главное меню
+            sendMessage(userId, errorMessage, createBackToMainKeyboard());
+            return;
+        }
+
+        String backCallback = CALLBACK_ADMIN_BACK_TO_TOPICS + ":" + sectionId + ":" + page;
+        InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup(
+                new InlineKeyboardButton[]{new InlineKeyboardButton(BUTTON_RETRY).callbackData(CALLBACK_RETRY)},
+                new InlineKeyboardButton[]{new InlineKeyboardButton(BUTTON_CANCEL).callbackData(backCallback)}
+        );
+        sendMessage(userId, errorMessage, keyboard);
     }
 }
