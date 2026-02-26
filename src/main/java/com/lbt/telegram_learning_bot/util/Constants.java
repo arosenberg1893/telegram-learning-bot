@@ -105,6 +105,7 @@ public final class Constants {
     public static final String CALLBACK_MY_MISTAKES = "my_mistakes";
     public static final String CALLBACK_BACK = "back";
     public static final String CALLBACK_STATISTICS_BACK = "statistics:back";
+    public static final String CALLBACK_BACK_TO_BLOCK_TEXT = "back_to_block_text";
 
     // ========== Сообщения пользователю ==========
     public static final String MSG_NO_DATA = "нет данных";
@@ -215,7 +216,6 @@ public final class Constants {
     public static final String CALLBACK_ADMIN_COURSES_PAGE = "admin_courses_page";
     public static final String CALLBACK_ADMIN_SECTIONS_PAGE = "admin_sections_page";
     public static final String CALLBACK_ADMIN_TOPICS_PAGE = "admin_topics_page";
-
     public static final String CALLBACK_ADMIN_BACK_TO_SECTIONS = "admin_back_to_sections";
     public static final String CALLBACK_ADMIN_BACK_TO_TOPICS = "admin_back_to_topics";
 }

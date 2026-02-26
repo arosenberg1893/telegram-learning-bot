@@ -219,6 +219,9 @@ public class TelegramBotHandler extends BaseHandler {
             case CALLBACK_ANSWER:
                 testHandler.handleAnswer(userId, messageId, Long.parseLong(parts[1]), Long.parseLong(parts[2]));
                 break;
+            case CALLBACK_BACK_TO_BLOCK_TEXT:
+                testHandler.handleBackToBlockText(userId, messageId);
+                break;
 
             // тесты
             case CALLBACK_TEST_TOPIC:

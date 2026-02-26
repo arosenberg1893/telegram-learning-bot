@@ -267,7 +267,7 @@ public class TestHandler extends BaseHandler {
             if (isLast) {
                 return new InlineKeyboardMarkup(
                         new InlineKeyboardButton[]{new InlineKeyboardButton(BUTTON_NEXT).callbackData(CALLBACK_NEXT_BLOCK)},
-                        new InlineKeyboardButton[]{new InlineKeyboardButton(BUTTON_BACK_TO_TEXT).callbackData(CALLBACK_PREV_QUESTION)}
+                        new InlineKeyboardButton[]{new InlineKeyboardButton(BUTTON_BACK_TO_TEXT).callbackData(CALLBACK_BACK_TO_BLOCK_TEXT)}
                 ).addRow(new InlineKeyboardButton(BUTTON_EXIT_TOPIC).callbackData(CALLBACK_BACK_TO_TOPICS));
             } else {
                 return new InlineKeyboardMarkup(
@@ -447,6 +447,14 @@ public class TestHandler extends BaseHandler {
         }
     }
 
+    public void handleBackToBlockText(Long userId, Integer messageId) {
+        UserContext context = sessionService.getCurrentContext(userId);
+        Long currentBlockId = context.getCurrentTopicBlockIds().get(context.getCurrentBlockIndex());
+        context.setCurrentBlockQuestionIndex(-1);
+        sessionService.updateSessionContext(userId, context);
+        courseNavHandler.showBlockContent(userId, messageId, currentBlockId);
+    }
+
     // ================== Внутренние методы ==================
     private void showTestQuestion(Long userId, Integer messageId, Question question) {
         UserContext context = sessionService.getCurrentContext(userId);
@@ -466,8 +474,7 @@ public class TestHandler extends BaseHandler {
                 backCallbackData = CALLBACK_PREV_QUESTION;
             }
         } else {
-            // Учебный режим – без изменений (возврат к списку разделов)
-            backCallbackData = CALLBACK_BACK_TO_SECTIONS;
+            backCallbackData = CALLBACK_PREV_QUESTION;
             currentNumber = context.getCurrentBlockQuestionIndex() + 1;
             totalQuestions = context.getCurrentBlockQuestionIds().size();
         }
