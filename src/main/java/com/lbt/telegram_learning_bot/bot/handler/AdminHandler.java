@@ -299,6 +299,11 @@ public class AdminHandler extends BaseHandler {
     private void handleSelectTopicForEditInternal(Long userId, Integer messageId, Long topicId) {
         UserContext context = sessionService.getCurrentContext(userId);
         context.setEditingTopicId(topicId);
+        // Дополнительно можно сохранить sectionId, если он ещё не установлен
+        Topic topic = topicRepository.findById(topicId).orElse(null);
+        if (topic != null) {
+            context.setEditingSectionId(topic.getSection().getId());
+        }
         sessionService.updateSessionContext(userId, context);
 
         editMessage(userId, messageId,
@@ -461,8 +466,20 @@ public class AdminHandler extends BaseHandler {
         } catch (InvalidJsonException e) {
             log.warn("Topic JSON validation error: {}", e.getMessage());
             UserContext context = sessionService.getCurrentContext(userId);
-            Long sectionId = context.getEditingSectionId();
-            Integer page = context.getAdminTopicsPage(); // текущая страница тем
+            Long topicId = context.getEditingTopicId();
+            Long sectionId = null;
+            if (topicId != null) {
+                Topic topic = topicRepository.findById(topicId).orElse(null);
+                if (topic != null) {
+                    sectionId = topic.getSection().getId();
+                }
+            }
+            Integer page = context.getAdminTopicsPage();
+            if (sectionId == null) {
+                // Если не удалось определить раздел – возвращаем в главное меню
+                sendMessage(userId, e.getMessage(), createBackToMainKeyboard());
+                return;
+            }
             String backCallback = CALLBACK_ADMIN_BACK_TO_TOPICS + ":" + sectionId + ":" + page;
             InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup(
                     new InlineKeyboardButton[]{new InlineKeyboardButton(BUTTON_RETRY).callbackData(CALLBACK_RETRY)},
