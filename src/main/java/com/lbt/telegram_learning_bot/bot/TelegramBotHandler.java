@@ -273,12 +273,7 @@ public class TelegramBotHandler extends BaseHandler {
                 adminHandler.handleConfirmDeleteCourse(userId, messageId, Long.parseLong(parts[1]));
                 break;
             case CALLBACK_RETRY:
-                BotState currentState = sessionService.getCurrentState(userId);
-                if (currentState == BotState.AWAITING_COURSE_JSON) {
-                    adminHandler.promptCreateCourse(userId, messageId);
-                } else if (currentState == BotState.AWAITING_IMAGE) {
-                    adminHandler.promptCurrentImage(userId, messageId);
-                }
+                adminHandler.handleRetry(userId, messageId);
                 break;
             case CALLBACK_ADMIN_COURSES_PAGE:
                 if (!isAdmin(userId)) return;
@@ -298,7 +293,13 @@ public class TelegramBotHandler extends BaseHandler {
                 break;
             case CALLBACK_ADMIN_BACK_TO_TOPICS:
                 if (!isAdmin(userId)) return;
-                adminHandler.handleBackToTopicsFromEdit(userId, messageId);
+                if (parts.length >= 3) {
+                    Long sectionId = Long.parseLong(parts[1]);
+                    int page = Integer.parseInt(parts[2]);
+                    adminHandler.handleBackToTopicsFromEdit(userId, messageId, sectionId, page);
+                } else {
+                    adminHandler.handleBackToTopicsFromEdit(userId, messageId);
+                }
                 break;
 
 

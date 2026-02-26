@@ -460,10 +460,13 @@ public class AdminHandler extends BaseHandler {
 
         } catch (InvalidJsonException e) {
             log.warn("Topic JSON validation error: {}", e.getMessage());
-            // Создаём клавиатуру: Повторить -> retry, Отмена -> admin_back_to_topics
+            UserContext context = sessionService.getCurrentContext(userId);
+            Long sectionId = context.getEditingSectionId();
+            Integer page = context.getAdminTopicsPage(); // текущая страница тем
+            String backCallback = CALLBACK_ADMIN_BACK_TO_TOPICS + ":" + sectionId + ":" + page;
             InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup(
                     new InlineKeyboardButton[]{new InlineKeyboardButton(BUTTON_RETRY).callbackData(CALLBACK_RETRY)},
-                    new InlineKeyboardButton[]{new InlineKeyboardButton(BUTTON_CANCEL).callbackData(CALLBACK_ADMIN_BACK_TO_TOPICS)}
+                    new InlineKeyboardButton[]{new InlineKeyboardButton(BUTTON_CANCEL).callbackData(backCallback)}
             );
             sendMessage(userId, e.getMessage(), keyboard);
         } catch (Exception e) {
@@ -658,6 +661,10 @@ public class AdminHandler extends BaseHandler {
     }
 
     public void handleAdminTopicsPage(Long userId, Integer messageId, Long sectionId, int page) {
+        showEditTopicsPage(userId, messageId, sectionId, page);
+    }
+
+    public void handleBackToTopicsFromEdit(Long userId, Integer messageId, Long sectionId, int page) {
         showEditTopicsPage(userId, messageId, sectionId, page);
     }
 }
