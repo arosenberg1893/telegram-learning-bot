@@ -215,7 +215,8 @@ public class AdminHandler extends BaseHandler {
         }
         String text = String.format(FORMAT_DELETE_COURSES_HEADER,
                 page + 1, result.getTotalPages(), result.getTotalItems());
-        InlineKeyboardMarkup keyboard = keyboardBuilder.buildCoursesKeyboardForAdmin(result, SOURCE_MY_COURSES, CALLBACK_SELECT_COURSE_FOR_EDIT);
+        InlineKeyboardMarkup keyboard = keyboardBuilder.buildCoursesKeyboardForAdmin(
+                result, SOURCE_MY_COURSES, CALLBACK_SELECT_COURSE_FOR_DELETE); // ✅ исправлено
         editMessage(userId, messageId, text, keyboard);
     }
 
