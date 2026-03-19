@@ -13,6 +13,7 @@ import com.lbt.telegram_learning_bot.repository.*;
 import com.lbt.telegram_learning_bot.service.CourseImportService;
 import com.lbt.telegram_learning_bot.service.NavigationService;
 import com.lbt.telegram_learning_bot.service.UserSessionService;
+import com.lbt.telegram_learning_bot.service.UserSettingsService;
 import com.pengrad.telegrambot.TelegramBot;
 import com.pengrad.telegrambot.model.Message;
 import com.pengrad.telegrambot.model.request.InlineKeyboardButton;
@@ -65,8 +66,9 @@ public class AdminHandler extends BaseHandler {
                         QuestionImageRepository questionImageRepository,
                         AdminUserRepository adminUserRepository,
                         UserProgressRepository userProgressRepository,
-                        ObjectMapper objectMapper) {
-        super(telegramBot, sessionService, navigationService, adminUserRepository);
+                        ObjectMapper objectMapper,
+                        UserSettingsService userSettingsService) {   // новый параметр
+        super(telegramBot, sessionService, navigationService, adminUserRepository, userSettingsService);
         this.courseImportService = courseImportService;
         this.courseRepository = courseRepository;
         this.sectionRepository = sectionRepository;
@@ -196,7 +198,7 @@ public class AdminHandler extends BaseHandler {
     }
 
     public void showEditCoursesPage(Long userId, Integer messageId, int page) {
-        var result = navigationService.getAllCoursesPage(page);
+        var result = navigationService.getAllCoursesPage(page, ADMIN_PAGE_SIZE);
         if (result.getItems().isEmpty()) {
             editMessage(userId, messageId, MSG_NO_COURSES_TO_EDIT, createBackToMainKeyboard());
             return;
@@ -208,7 +210,7 @@ public class AdminHandler extends BaseHandler {
     }
 
     private void showDeleteCoursesPage(Long userId, Integer messageId, int page) {
-        var result = navigationService.getAllCoursesPage(page);
+        var result = navigationService.getAllCoursesPage(page, ADMIN_PAGE_SIZE);
         if (result.getItems().isEmpty()) {
             editMessage(userId, messageId, MSG_NO_COURSES_TO_DELETE, createBackToMainKeyboard());
             return;
@@ -253,7 +255,7 @@ public class AdminHandler extends BaseHandler {
         } else if (ACTION_SECTIONS.equals(action)) {
             UserContext context = sessionService.getCurrentContext(userId);
             Long courseId = context.getEditingCourseId();
-            var result = navigationService.getSectionsPage(courseId, 0);
+            var result = navigationService.getSectionsPage(courseId, 0, ADMIN_PAGE_SIZE);
             String text = MSG_SELECT_SECTION;
             // Добавлен четвёртый аргумент CALLBACK_EDIT_COURSE
             InlineKeyboardMarkup keyboard = keyboardBuilder.buildSectionsKeyboardForAdmin(
@@ -287,7 +289,7 @@ public class AdminHandler extends BaseHandler {
         } else if (ACTION_TOPICS.equals(action)) {
             UserContext context = sessionService.getCurrentContext(userId);
             Long sectionId = context.getEditingSectionId();
-            var result = navigationService.getTopicsPage(sectionId, 0);
+            var result = navigationService.getTopicsPage(sectionId, 0, ADMIN_PAGE_SIZE);
             String text = MSG_SELECT_TOPIC;
             // Добавлен четвёртый аргумент CALLBACK_ADMIN_BACK_TO_SECTIONS
             InlineKeyboardMarkup keyboard = keyboardBuilder.buildTopicsKeyboardForAdmin(
@@ -431,7 +433,7 @@ public class AdminHandler extends BaseHandler {
             context.setEditingCourseId(courseId);
             sessionService.updateSessionContext(userId, context);
 
-            var result = navigationService.getSectionsPage(courseId, 0);
+            var result = navigationService.getSectionsPage(courseId, 0, ADMIN_PAGE_SIZE);
             String text = MSG_SELECT_SECTION;
             InlineKeyboardMarkup keyboard = keyboardBuilder.buildSectionsKeyboardForAdmin(
                     result, courseId, CALLBACK_SELECT_SECTION_FOR_EDIT, CALLBACK_EDIT_COURSE);
@@ -574,7 +576,7 @@ public class AdminHandler extends BaseHandler {
         context.setAdminSectionsPage(page);
         sessionService.updateSessionContext(userId, context);
 
-        var result = navigationService.getSectionsPage(courseId, page);
+        var result = navigationService.getSectionsPage(courseId, page, ADMIN_PAGE_SIZE);
         String courseTitle = navigationService.getCourseTitle(courseId);
         String text = String.format(FORMAT_EDIT_SECTIONS_HEADER,
                 courseTitle, page + 1, result.getTotalPages(), result.getTotalItems());
@@ -592,7 +594,7 @@ public class AdminHandler extends BaseHandler {
         context.setAdminTopicsPage(page);
         sessionService.updateSessionContext(userId, context);
 
-        var result = navigationService.getTopicsPage(sectionId, page);
+        var result = navigationService.getTopicsPage(sectionId, page, ADMIN_PAGE_SIZE);
         String sectionTitle = navigationService.getSectionTitle(sectionId);
         String text = String.format(FORMAT_EDIT_TOPICS_HEADER,
                 sectionTitle, page + 1, result.getTotalPages(), result.getTotalItems());

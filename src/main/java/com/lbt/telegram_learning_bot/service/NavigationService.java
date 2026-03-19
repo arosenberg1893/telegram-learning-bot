@@ -40,6 +40,7 @@ public class NavigationService {
     public String getCourseDescription(Long courseId) {
         return courseRepository.findById(courseId).map(Course::getDescription).orElse("");
     }
+
     /**
      * Фиксирует активное действие пользователя в теме.
      * Если с последнего действия прошло меньше SESSION_TIMEOUT_SECONDS,
@@ -75,6 +76,7 @@ public class NavigationService {
         Long sum = userStudyTimeRepository.sumTotalSecondsByUserId(userId);
         return sum == null ? 0 : sum;
     }
+
     /**
      * Суммарное время изучения по курсу.
      */
@@ -83,6 +85,7 @@ public class NavigationService {
         return userStudyTimeRepository.findByUserIdAndTopicIdIn(userId, topicIds)
                 .stream().mapToLong(UserStudyTime::getTotalSeconds).sum();
     }
+
     /**
      * Суммарное время изучения по разделу.
      */
@@ -103,6 +106,7 @@ public class NavigationService {
     public String getSectionDescription(Long sectionId) {
         return sectionRepository.findById(sectionId).map(Section::getDescription).orElse("");
     }
+
     public Optional<Block> getBlockWithImages(Long blockId) {
         return blockRepository.findByIdWithImages(blockId);
     }
@@ -117,7 +121,9 @@ public class NavigationService {
         });
         return opt;
     }
-    private static final int PAGE_SIZE = 5;
+
+    private static final int pageSize = 5;
+
     /**
      * Количество курсов, которые пользователь начал (есть прогресс)
      */
@@ -219,7 +225,8 @@ public class NavigationService {
             String learningStatus = getTopicLearningStatus(userId, topic.getId());
             if (!learningStatus.equals(EMOJI_NOT_STARTED)) anyLearning = true;
             if (!learningStatus.equals(EMOJI_COMPLETED)) allTopicsGreen = false;
-            if (!learningStatus.equals(EMOJI_COMPLETED) && !learningStatus.equals(EMOJI_NOT_STARTED)) anyNotGreen = true;
+            if (!learningStatus.equals(EMOJI_COMPLETED) && !learningStatus.equals(EMOJI_NOT_STARTED))
+                anyNotGreen = true;
         }
 
         // Получаем статус итогового теста раздела
@@ -257,6 +264,7 @@ public class NavigationService {
         if (allSectionsGreen && courseTestStatus.equals(EMOJI_COMPLETED)) return EMOJI_COMPLETED;
         return EMOJI_IN_PROGRESS;
     }
+
     // Приватные методы для тестов (переименуем)
     private String getTopicTestStatusInternal(Long userId, Long topicId) {
         Optional<UserTestResult> result = userTestResultRepository.findByUserIdAndTestTypeAndTestId(userId, TEST_TYPE_TOPIC, topicId);
@@ -277,11 +285,11 @@ public class NavigationService {
         int correct = result.get().getCorrectCount();
         int wrong = result.get().getWrongCount();
         int total = correct + wrong;
-            if (total == 0) return EMOJI_NOT_STARTED;
+        if (total == 0) return EMOJI_NOT_STARTED;
         double percent = (double) correct / total;
         if (percent >= 1.0) return EMOJI_COMPLETED;
-    else if (percent >= 0.5) return EMOJI_IN_PROGRESS;
-    else return EMOJI_FAILED;
+        else if (percent >= 0.5) return EMOJI_IN_PROGRESS;
+        else return EMOJI_FAILED;
     }
 
     private String getCourseTestStatusInternal(Long userId, Long courseId) {
@@ -290,12 +298,13 @@ public class NavigationService {
         int correct = result.get().getCorrectCount();
         int wrong = result.get().getWrongCount();
         int total = correct + wrong;
-            if (total == 0) return EMOJI_NOT_STARTED;
+        if (total == 0) return EMOJI_NOT_STARTED;
         double percent = (double) correct / total;
         if (percent >= 1.0) return EMOJI_COMPLETED;
-    else if (percent >= 0.5) return EMOJI_IN_PROGRESS;
-    else return EMOJI_FAILED;
+        else if (percent >= 0.5) return EMOJI_IN_PROGRESS;
+        else return EMOJI_FAILED;
     }
+
     public String getTopicTestStatus(Long userId, Long topicId) {
         return getTopicTestStatusInternal(userId, topicId);
     }
@@ -307,6 +316,7 @@ public class NavigationService {
     public String getCourseTestStatus(Long userId, Long courseId) {
         return getCourseTestStatusInternal(userId, courseId);
     }
+
     private String getTopicLearningStatus(Long userId, Long topicId) {
         List<Question> questions = getAllQuestionsForTopic(topicId);
         if (questions.isEmpty()) return EMOJI_NOT_STARTED;
@@ -330,6 +340,7 @@ public class NavigationService {
         if (correct == total) return EMOJI_COMPLETED;
         return EMOJI_IN_PROGRESS;
     }
+
     // добавьте методы:
     @Transactional
     public void saveTestResult(Long userId, String testType, Long testId, int correct, int wrong) {
@@ -357,6 +368,7 @@ public class NavigationService {
         String[] words = cleaned.split("\\s+");
         return String.join(" & ", words);
     }
+
     private String getTestStatus(Long userId, String testType, Long testId) {
         Optional<UserTestResult> opt = userTestResultRepository.findByUserIdAndTestTypeAndTestId(userId, testType, testId);
         if (opt.isEmpty()) return EMOJI_NOT_STARTED;
@@ -392,6 +404,7 @@ public class NavigationService {
         }
         return Optional.empty();
     }
+
     @Transactional
     public void saveAnswerProgress(Long userId, Long questionId, boolean correct, boolean isLearning) {
         Question question = questionRepository.findById(questionId)
@@ -432,8 +445,8 @@ public class NavigationService {
         userProgressRepository.save(progress);
     }
 
-    public PaginationResult<Course> getMyCoursesPage(Long userId, int page) {
-        Pageable pageable = PageRequest.of(page, PAGE_SIZE); // убрана сортировка
+    public PaginationResult<Course> getMyCoursesPage(Long userId, int page, int pageSize) {
+        Pageable pageable = PageRequest.of(page, pageSize); // убрана сортировка
         Page<Course> coursePage = userProgressRepository.findCoursesWithProgressOrderByLastAccessed(userId, pageable);
         return new PaginationResult<>(
                 coursePage.getContent(),
@@ -451,8 +464,8 @@ public class NavigationService {
     }
 
     // Для меню "Выбрать курс" (все курсы, алфавитная сортировка)
-    public PaginationResult<Course> getAllCoursesPage(int page) {
-        Pageable pageable = PageRequest.of(page, PAGE_SIZE, Sort.by("title").ascending());
+    public PaginationResult<Course> getAllCoursesPage(int page, int pageSize) {
+        Pageable pageable = PageRequest.of(page, pageSize, Sort.by("title").ascending());
         Page<Course> coursePage = courseRepository.findAll(pageable);
         return new PaginationResult<>(
                 coursePage.getContent(),
@@ -463,6 +476,7 @@ public class NavigationService {
                 coursePage.hasPrevious()
         );
     }
+
     public String getLastAccessedTime(Long userId, Long courseId) {
         return userProgressRepository
                 .findByUserIdAndCourseIdAndBlockIsNullAndQuestionIsNullOrderByLastAccessedAtDesc(userId, courseId)
@@ -529,6 +543,7 @@ public class NavigationService {
                 .map(UserProgress::getLastAccessedAt)
                 .orElse(null);
     }
+
     private String formatRelativeTime(Instant instant) {
         if (instant == null) return "";
         Duration duration = Duration.between(instant, Instant.now());
@@ -547,14 +562,15 @@ public class NavigationService {
                 .withZone(ZoneId.systemDefault());
         return formatter.format(instant);
     }
+
     // Для результатов поиска
-    public PaginationResult<Course> getFoundCoursesPage(String query, int page) {
+    public PaginationResult<Course> getFoundCoursesPage(String query, int page, int pageSize) {
         String fullTextQuery = prepareFullTextQuery(query);
         if (fullTextQuery.isEmpty()) {
             return new PaginationResult<>(Collections.emptyList(), page, 0, 0, false, false);
         }
 
-        Pageable pageable = PageRequest.of(page, PAGE_SIZE);
+        Pageable pageable = PageRequest.of(page, pageSize);
         Page<Course> coursePage = courseRepository.searchByFullText(fullTextQuery, pageable);
         return new PaginationResult<>(
                 coursePage.getContent(),
@@ -602,8 +618,8 @@ public class NavigationService {
         return topicRepository.findById(topicId).map(Topic::getTitle).orElse("");
     }
 
-    public PaginationResult<Section> getSectionsPage(Long courseId, int page) {
-        Pageable pageable = PageRequest.of(page, PAGE_SIZE, Sort.by("orderIndex").ascending());
+    public PaginationResult<Section> getSectionsPage(Long courseId, int page, int pageSize) {
+        Pageable pageable = PageRequest.of(page, pageSize, Sort.by("orderIndex").ascending());
         Page<Section> sectionPage = sectionRepository.findByCourseId(courseId, pageable);
         return new PaginationResult<>(
                 sectionPage.getContent(),
@@ -615,8 +631,8 @@ public class NavigationService {
         );
     }
 
-    public PaginationResult<Topic> getTopicsPage(Long sectionId, int page) {
-        Pageable pageable = PageRequest.of(page, PAGE_SIZE, Sort.by("orderIndex").ascending());
+    public PaginationResult<Topic> getTopicsPage(Long sectionId, int page, int pageSize) {
+        Pageable pageable = PageRequest.of(page, pageSize, Sort.by("orderIndex").ascending());
         Page<Topic> topicPage = topicRepository.findBySectionId(sectionId, pageable);
         return new PaginationResult<>(
                 topicPage.getContent(),
@@ -629,7 +645,7 @@ public class NavigationService {
     }
 
     public PaginationResult<Block> getBlocksPage(Long topicId, int page) {
-        Pageable pageable = PageRequest.of(page, PAGE_SIZE, Sort.by("orderIndex").ascending());
+        Pageable pageable = PageRequest.of(page, pageSize, Sort.by("orderIndex").ascending());
         Page<Block> blockPage = blockRepository.findByTopicId(topicId, pageable);
         return new PaginationResult<>(
                 blockPage.getContent(),
@@ -682,11 +698,9 @@ public class NavigationService {
         for (Topic topic : topics) {
             List<Block> blocks = blockRepository.findByTopicIdOrderByOrderIndexAsc(topic.getId());
             for (Block block : blocks) {
-                // Создаём изменяемую копию списка вопросов блока
                 List<Question> blockQuestions = new ArrayList<>(questionRepository.findByBlockIdOrderByOrderIndexAsc(block.getId()));
                 if (!blockQuestions.isEmpty()) {
                     Collections.shuffle(blockQuestions);
-                    // Берём до questionsPerBlock вопросов из блока
                     result.addAll(blockQuestions.stream().limit(questionsPerBlock).toList());
                 }
             }
@@ -704,7 +718,6 @@ public class NavigationService {
         for (Section section : sections) {
             List<Topic> topics = topicRepository.findBySectionIdOrderByOrderIndexAsc(section.getId());
             for (Topic topic : topics) {
-                // getAllQuestionsForTopic возвращает неизменяемый список, поэтому создаём копию
                 List<Question> topicQuestions = new ArrayList<>(getAllQuestionsForTopic(topic.getId()));
                 if (!topicQuestions.isEmpty()) {
                     Collections.shuffle(topicQuestions);
@@ -714,7 +727,6 @@ public class NavigationService {
         }
         return result;
     }
-    // в NavigationService.java
 
     @Transactional
     public void recordMistake(Long userId, Long questionId) {
@@ -736,16 +748,18 @@ public class NavigationService {
     public List<Question> getMistakeQuestions(Long userId) {
         return userMistakeRepository.findMistakeQuestionsByUserId(userId);
     }
+
     private <T> PaginationResult<T> paginate(List<T> fullList, int page) {
         int total = fullList.size();
-        int fromIndex = page * PAGE_SIZE;
-        int toIndex = Math.min(fromIndex + PAGE_SIZE, total);
+        int fromIndex = page * pageSize;
+        int toIndex = Math.min(fromIndex + pageSize, total);
         boolean hasPrevious = page > 0;
         boolean hasNext = toIndex < total;
         List<T> items = (fromIndex < total) ? fullList.subList(fromIndex, toIndex) : Collections.emptyList();
-        int totalPages = (total + PAGE_SIZE - 1) / PAGE_SIZE;
+        int totalPages = (total + pageSize - 1) / pageSize;
         return new PaginationResult<>(items, page, totalPages, total, hasPrevious, hasNext); // добавили total
     }
+
     // Получение сущностей по ID
     public Optional<Section> getSection(Long sectionId) {
         return sectionRepository.findById(sectionId);
@@ -754,6 +768,7 @@ public class NavigationService {
     public Optional<Topic> getTopic(Long topicId) {
         return topicRepository.findById(topicId);
     }
+
     @Transactional
     public void updateCourseLastAccessedOnExit(Long userId, Long courseId) {
         if (courseId == null) return;

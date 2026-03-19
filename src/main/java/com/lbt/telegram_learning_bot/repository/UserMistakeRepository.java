@@ -24,4 +24,9 @@ public interface UserMistakeRepository extends JpaRepository<UserMistake, Long> 
     @Modifying
     @Transactional
     void deleteByUserIdAndQuestionId(Long userId, Long questionId);
+
+    @Modifying
+    @Transactional
+    @Query("DELETE FROM UserMistake um WHERE um.userId = :userId")
+    void deleteByUserId(@Param("userId") Long userId);
 }

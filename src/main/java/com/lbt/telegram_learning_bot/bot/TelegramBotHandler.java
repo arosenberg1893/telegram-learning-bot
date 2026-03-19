@@ -1,14 +1,8 @@
 package com.lbt.telegram_learning_bot.bot;
 
-import com.lbt.telegram_learning_bot.bot.handler.AdminHandler;
-import com.lbt.telegram_learning_bot.bot.handler.BaseHandler;
-import com.lbt.telegram_learning_bot.bot.handler.CourseNavigationHandler;
-import com.lbt.telegram_learning_bot.bot.handler.TestHandler;
+import com.lbt.telegram_learning_bot.bot.handler.*;
 import com.lbt.telegram_learning_bot.repository.AdminUserRepository;
-import com.lbt.telegram_learning_bot.service.NavigationService;
-import com.lbt.telegram_learning_bot.service.PdfExportService;
-import com.lbt.telegram_learning_bot.service.RateLimiterService;
-import com.lbt.telegram_learning_bot.service.UserSessionService;
+import com.lbt.telegram_learning_bot.service.*;
 import com.pengrad.telegrambot.TelegramBot;
 import com.pengrad.telegrambot.model.CallbackQuery;
 import com.pengrad.telegrambot.model.Message;
@@ -44,6 +38,7 @@ public class TelegramBotHandler extends BaseHandler {
     @Value("${message.max-length:2000}")
     private int maxMessageLength;
     private final RateLimiterService rateLimiterService;
+    private final SettingsHandler settingsHandler;
 
     @PostConstruct
     public void init() {
@@ -58,8 +53,10 @@ public class TelegramBotHandler extends BaseHandler {
                               CourseNavigationHandler courseNavHandler,
                               RateLimiterService rateLimiterService,
                               TestHandler testHandler,
-                              AdminHandler adminHandler) {
-        super(telegramBot, sessionService, navigationService, adminUserRepository);
+                              AdminHandler adminHandler,
+                              SettingsHandler settingsHandler,          // новый параметр
+                              UserSettingsService userSettingsService) { // новый параметр
+        super(telegramBot, sessionService, navigationService, adminUserRepository, userSettingsService);
         this.telegramBot = telegramBot;
         this.sessionService = sessionService;
         this.navigationService = navigationService;
@@ -69,6 +66,7 @@ public class TelegramBotHandler extends BaseHandler {
         this.testHandler = testHandler;
         this.adminHandler = adminHandler;
         this.rateLimiterService = rateLimiterService;
+        this.settingsHandler = settingsHandler;  // инициализация
     }
 
     private boolean isAdminState(BotState state) {
@@ -329,6 +327,43 @@ public class TelegramBotHandler extends BaseHandler {
                 break;
             case CALLBACK_BACK:
                 handleBack(userId, messageId);
+                break;
+
+            case CALLBACK_SETTINGS:
+                settingsHandler.showSettingsMenu(userId, messageId);
+                break;
+            case CALLBACK_SETTINGS_SHUFFLE:
+                settingsHandler.toggleShuffle(userId, messageId);
+                break;
+            case CALLBACK_SETTINGS_PAGESIZE:
+                settingsHandler.showPageSizeOptions(userId, messageId);
+                break;
+            case CALLBACK_SETTINGS_QUESTIONS:
+                settingsHandler.showQuestionsPerBlockOptions(userId, messageId);
+                break;
+            case CALLBACK_SETTINGS_EXPLANATIONS:
+                settingsHandler.toggleExplanations(userId, messageId);
+                break;
+            case CALLBACK_SETTINGS_NOTIFICATIONS:
+                settingsHandler.toggleNotifications(userId, messageId);
+                break;
+            case CALLBACK_SETTINGS_RESET:
+                settingsHandler.confirmResetProgress(userId, messageId);
+                break;
+            case "settings_pagesize_set":
+                if (parts.length >= 2) {
+                    int size = Integer.parseInt(parts[1]);
+                    settingsHandler.setPageSize(userId, messageId, size);
+                }
+                break;
+            case "settings_questions_set":
+                if (parts.length >= 2) {
+                    int count = Integer.parseInt(parts[1]);
+                    settingsHandler.setQuestionsPerBlock(userId, messageId, count);
+                }
+                break;
+            case "settings_reset_confirm":
+                settingsHandler.resetProgress(userId, messageId);
                 break;
             default:
                 log.warn("Unknown callback action: {}", action);

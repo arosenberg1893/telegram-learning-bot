@@ -218,4 +218,13 @@ public final class Constants {
     public static final String CALLBACK_ADMIN_TOPICS_PAGE = "admin_topics_page";
     public static final String CALLBACK_ADMIN_BACK_TO_SECTIONS = "admin_back_to_sections";
     public static final String CALLBACK_ADMIN_BACK_TO_TOPICS = "admin_back_to_topics";
+
+    public static final String CALLBACK_SETTINGS = "settings";
+    public static final String CALLBACK_SETTINGS_SHUFFLE = "settings_shuffle";
+    public static final String CALLBACK_SETTINGS_PAGESIZE = "settings_pagesize";
+    public static final String CALLBACK_SETTINGS_QUESTIONS = "settings_questions";
+    public static final String CALLBACK_SETTINGS_EXPLANATIONS = "settings_explanations";
+    public static final String CALLBACK_SETTINGS_NOTIFICATIONS = "settings_notifications";
+    public static final String CALLBACK_SETTINGS_RESET = "settings_reset";
+    public static final int ADMIN_PAGE_SIZE = 5;
 }

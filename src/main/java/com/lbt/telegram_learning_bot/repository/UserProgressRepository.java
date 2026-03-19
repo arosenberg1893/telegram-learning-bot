@@ -117,4 +117,9 @@ public interface UserProgressRepository extends JpaRepository<UserProgress, Long
     @Transactional
     @Query("DELETE FROM UserProgress up WHERE up.question.id = :questionId")
     void deleteByQuestionId(@Param("questionId") Long questionId);
+
+    @Modifying
+    @Transactional
+    @Query("DELETE FROM UserProgress up WHERE up.userId = :userId")
+    void deleteByUserId(@Param("userId") Long userId);
 }

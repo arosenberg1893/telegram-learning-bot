@@ -6,6 +6,7 @@ import com.lbt.telegram_learning_bot.entity.QuestionImage;
 import com.lbt.telegram_learning_bot.repository.AdminUserRepository;
 import com.lbt.telegram_learning_bot.service.NavigationService;
 import com.lbt.telegram_learning_bot.service.UserSessionService;
+import com.lbt.telegram_learning_bot.service.UserSettingsService;
 import com.pengrad.telegrambot.TelegramBot;
 import com.pengrad.telegrambot.model.Message;
 import com.pengrad.telegrambot.model.request.InlineKeyboardButton;
@@ -36,15 +37,18 @@ public abstract class BaseHandler {
     protected final UserSessionService sessionService;
     protected final NavigationService navigationService;
     protected final AdminUserRepository adminUserRepository;
+    protected final UserSettingsService userSettingsService;
 
     public BaseHandler(TelegramBot telegramBot,
                        UserSessionService sessionService,
                        NavigationService navigationService,
-                       AdminUserRepository adminUserRepository) {
+                       AdminUserRepository adminUserRepository,
+                       UserSettingsService userSettingsService) {
         this.telegramBot = telegramBot;
         this.sessionService = sessionService;
         this.navigationService = navigationService;
         this.adminUserRepository = adminUserRepository;
+        this.userSettingsService = userSettingsService;
     }
 
     protected void sendMainMenu(Long userId, Integer messageId) {
@@ -60,6 +64,9 @@ public abstract class BaseHandler {
                 },
                 new InlineKeyboardButton[]{
                         new InlineKeyboardButton(BUTTON_MISTAKES).callbackData(CALLBACK_MY_MISTAKES)
+                },
+                new InlineKeyboardButton[]{
+                        new InlineKeyboardButton("⚙️ Настройки").callbackData(CALLBACK_SETTINGS)
                 }
         );
         if (isAdmin(userId)) {

@@ -6,6 +6,7 @@ import com.lbt.telegram_learning_bot.entity.*;
 import com.lbt.telegram_learning_bot.repository.*;
 import com.lbt.telegram_learning_bot.service.NavigationService;
 import com.lbt.telegram_learning_bot.service.UserSessionService;
+import com.lbt.telegram_learning_bot.service.UserSettingsService;
 import com.pengrad.telegrambot.TelegramBot;
 import com.pengrad.telegrambot.model.request.InlineKeyboardButton;
 import com.pengrad.telegrambot.model.request.InlineKeyboardMarkup;
@@ -38,8 +39,9 @@ public class TestHandler extends BaseHandler {
                        UserProgressRepository userProgressRepository,
                        UserMistakeRepository userMistakeRepository,
                        UserTestResultRepository userTestResultRepository,
-                       CourseNavigationHandler courseNavHandler) { // добавить
-        super(telegramBot, sessionService, navigationService, adminUserRepository);
+                       CourseNavigationHandler courseNavHandler,
+                       UserSettingsService userSettingsService) {   // новый параметр
+        super(telegramBot, sessionService, navigationService, adminUserRepository, userSettingsService);
         this.questionRepository = questionRepository;
         this.answerOptionRepository = answerOptionRepository;
         this.userProgressRepository = userProgressRepository;
@@ -80,7 +82,9 @@ public class TestHandler extends BaseHandler {
         UserContext context = sessionService.getCurrentContext(userId);
         context.setPreviousSectionPage(context.getCurrentPage()); // <-- сохраняем страницу разделов
         sessionService.updateSessionContext(userId, context);
-        List<Question> questions = navigationService.getRandomQuestionsForSection(sectionId, 2);
+        UserSettings settings = userSettingsService.getSettings(userId);
+        int questionsPerBlock = settings.getTestQuestionsPerBlock();
+        List<Question> questions = navigationService.getRandomQuestionsForSection(sectionId, questionsPerBlock);
         if (questions.isEmpty()) {
             String text = MSG_SECTION_NO_QUESTIONS;
             if (messageId != null) {
@@ -108,7 +112,9 @@ public class TestHandler extends BaseHandler {
         UserContext context = sessionService.getCurrentContext(userId);
         context.setPreviousCoursesPage(context.getCurrentPage()); // <-- сохраняем страницу курсов
         sessionService.updateSessionContext(userId, context);
-        List<Question> questions = navigationService.getRandomQuestionsForCourse(courseId, 2);
+        UserSettings settings = userSettingsService.getSettings(userId);
+        int questionsPerTopic = settings.getTestQuestionsPerBlock();
+        List<Question> questions = navigationService.getRandomQuestionsForCourse(courseId, questionsPerTopic);
         if (questions.isEmpty()) {
             String text = MSG_COURSE_NO_QUESTIONS;
             if (messageId != null) {
@@ -206,13 +212,13 @@ public class TestHandler extends BaseHandler {
                 }
             } else {
                 // Неправильный ответ – показываем пояснение (с кнопкой "Далее")
-                String resultText = buildResultText(context, correct, isLast);
+                String resultText = buildResultText(userId, context, correct, isLast);
                 InlineKeyboardMarkup keyboard = buildResultKeyboardAfterWrong(context, isLast);
                 sendOrEditResult(userId, messageId, resultText, keyboard);
             }
         } else {
             // Учебный режим – без изменений
-            String resultText = buildResultText(context, correct, isLast);
+            String resultText = buildResultText(userId, context, correct, isLast);
             InlineKeyboardMarkup keyboard = buildResultKeyboard(context, isLast);
             sendOrEditResult(userId, messageId, resultText, keyboard);
         }
@@ -222,28 +228,30 @@ public class TestHandler extends BaseHandler {
         }
     }
 
-    private String buildResultText(UserContext context, boolean correct, boolean isLast) {
+    private String buildResultText(Long userId, UserContext context, boolean correct, boolean isLast) {
+        UserSettings settings = userSettingsService.getSettings(userId);
         if (context.isTestMode() && isLast && correct) {
-            // Правильный ответ на последний вопрос – статистика
             return String.format(FORMAT_TEST_COMPLETED,
                     context.getCorrectAnswers(), context.getWrongAnswers(),
                     context.getCorrectAnswers() + context.getWrongAnswers());
         } else if (context.isTestMode() && isLast && !correct) {
-            // Неправильный ответ на последний вопрос – показываем пояснение
             String resultText = MSG_WRONG;
-            return resultText + "\n\nПояснение: " + getExplanationForCurrentQuestion(context);
-        } else if (context.isTestMode()) {
-            // Тестовый режим, не последний вопрос
-            String resultText = correct ? MSG_CORRECT : MSG_WRONG;
-            if (correct) {
-                return resultText; // без пояснения
-            } else {
-                return resultText + "\n\nПояснение: " + getExplanationForCurrentQuestion(context);
+            if (settings.getShowExplanations()) {
+                resultText += "\n\nПояснение: " + getExplanationForCurrentQuestion(context);
             }
-        } else {
-            // Учебный режим
+            return resultText;
+        } else if (context.isTestMode()) {
             String resultText = correct ? MSG_CORRECT : MSG_WRONG;
-            return resultText + "\n\nПояснение: " + getExplanationForCurrentQuestion(context);
+            if (!correct && settings.getShowExplanations()) {
+                resultText += "\n\nПояснение: " + getExplanationForCurrentQuestion(context);
+            }
+            return resultText;
+        } else {
+            String resultText = correct ? MSG_CORRECT : MSG_WRONG;
+            if (settings.getShowExplanations()) {
+                resultText += "\n\nПояснение: " + getExplanationForCurrentQuestion(context);
+            }
+            return resultText;
         }
     }
     private void showTestSummary(Long userId, Integer messageId) {
@@ -488,8 +496,11 @@ public class TestHandler extends BaseHandler {
         sendMediaGroup(userId, question.getImages());
 
         String text = String.format(FORMAT_QUESTION, currentNumber, totalQuestions, question.getText());
+        UserSettings settings = userSettingsService.getSettings(userId);
         List<AnswerOption> options = new ArrayList<>(navigationService.getAnswerOptionsForQuestion(question.getId()));
-        Collections.shuffle(options);
+        if (settings.getShuffleOptions()) {
+            Collections.shuffle(options);
+        }
         InlineKeyboardMarkup keyboard = buildAnswerOptionsKeyboard(options, question.getId(), backCallbackData);
 
         if (messageId != null) {
