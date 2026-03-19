@@ -34,7 +34,7 @@ public class NavigationService {
     private final UserProgressRepository userProgressRepository;
     private final UserMistakeRepository userMistakeRepository;
     private final UserTestResultRepository userTestResultRepository;
-    private static final int SESSION_TIMEOUT_SECONDS = 300; // 5 минут
+    private static final int SESSION_TIMEOUT_SECONDS = 300;
     private final UserStudyTimeRepository userStudyTimeRepository;
 
     public String getCourseDescription(Long courseId) {
@@ -121,8 +121,6 @@ public class NavigationService {
         });
         return opt;
     }
-
-    private static final int pageSize = 5;
 
     /**
      * Количество курсов, которые пользователь начал (есть прогресс)
@@ -265,56 +263,38 @@ public class NavigationService {
         return EMOJI_IN_PROGRESS;
     }
 
-    // Приватные методы для тестов (переименуем)
-    private String getTopicTestStatusInternal(Long userId, Long topicId) {
-        Optional<UserTestResult> result = userTestResultRepository.findByUserIdAndTestTypeAndTestId(userId, TEST_TYPE_TOPIC, topicId);
-        if (result.isEmpty()) return EMOJI_NOT_STARTED;
-        int correct = result.get().getCorrectCount();
-        int wrong = result.get().getWrongCount();
-        int total = correct + wrong;
+    /**
+     * Вычисляет статус прохождения теста по результату.
+     * Единый метод для всех типов тестов.
+     */
+    private String computeTestStatusEmoji(Optional<UserTestResult> resultOpt) {
+        if (resultOpt.isEmpty()) return EMOJI_NOT_STARTED;
+        UserTestResult r = resultOpt.get();
+        int total = r.getCorrectCount() + r.getWrongCount();
         if (total == 0) return EMOJI_NOT_STARTED;
-        double percent = (double) correct / total;
+        double percent = (double) r.getCorrectCount() / total;
         if (percent >= 1.0) return EMOJI_COMPLETED;
-        else if (percent >= 0.5) return EMOJI_IN_PROGRESS;
-        else return EMOJI_FAILED;
-    }
-
-    private String getSectionTestStatusInternal(Long userId, Long sectionId) {
-        Optional<UserTestResult> result = userTestResultRepository.findByUserIdAndTestTypeAndTestId(userId, TEST_TYPE_SECTION, sectionId);
-        if (result.isEmpty()) return EMOJI_NOT_STARTED;
-        int correct = result.get().getCorrectCount();
-        int wrong = result.get().getWrongCount();
-        int total = correct + wrong;
-        if (total == 0) return EMOJI_NOT_STARTED;
-        double percent = (double) correct / total;
-        if (percent >= 1.0) return EMOJI_COMPLETED;
-        else if (percent >= 0.5) return EMOJI_IN_PROGRESS;
-        else return EMOJI_FAILED;
-    }
-
-    private String getCourseTestStatusInternal(Long userId, Long courseId) {
-        Optional<UserTestResult> result = userTestResultRepository.findByUserIdAndTestTypeAndTestId(userId, TEST_TYPE_COURSE, courseId);
-        if (result.isEmpty()) return EMOJI_NOT_STARTED;
-        int correct = result.get().getCorrectCount();
-        int wrong = result.get().getWrongCount();
-        int total = correct + wrong;
-        if (total == 0) return EMOJI_NOT_STARTED;
-        double percent = (double) correct / total;
-        if (percent >= 1.0) return EMOJI_COMPLETED;
-        else if (percent >= 0.5) return EMOJI_IN_PROGRESS;
-        else return EMOJI_FAILED;
+        if (percent >= 0.5) return EMOJI_IN_PROGRESS;
+        return EMOJI_FAILED;
     }
 
     public String getTopicTestStatus(Long userId, Long topicId) {
-        return getTopicTestStatusInternal(userId, topicId);
+        return computeTestStatusEmoji(
+            userTestResultRepository.findByUserIdAndTestTypeAndTestId(userId, TEST_TYPE_TOPIC, topicId));
     }
 
     public String getSectionTestStatus(Long userId, Long sectionId) {
-        return getSectionTestStatusInternal(userId, sectionId);
+        return computeTestStatusEmoji(
+            userTestResultRepository.findByUserIdAndTestTypeAndTestId(userId, TEST_TYPE_SECTION, sectionId));
     }
 
     public String getCourseTestStatus(Long userId, Long courseId) {
-        return getCourseTestStatusInternal(userId, courseId);
+        return computeTestStatusEmoji(
+            userTestResultRepository.findByUserIdAndTestTypeAndTestId(userId, TEST_TYPE_COURSE, courseId));
+    }
+
+    private String getCourseTestStatusInternal(Long userId, Long courseId) {
+        return getCourseTestStatus(userId, courseId);
     }
 
     private String getTopicLearningStatus(Long userId, Long topicId) {
@@ -341,7 +321,6 @@ public class NavigationService {
         return EMOJI_IN_PROGRESS;
     }
 
-    // добавьте методы:
     @Transactional
     public void saveTestResult(Long userId, String testType, Long testId, int correct, int wrong) {
         UserTestResult result = userTestResultRepository
@@ -367,14 +346,6 @@ public class NavigationService {
         // Разбиваем на слова и соединяем оператором AND (&)
         String[] words = cleaned.split("\\s+");
         return String.join(" & ", words);
-    }
-
-    private String getTestStatus(Long userId, String testType, Long testId) {
-        Optional<UserTestResult> opt = userTestResultRepository.findByUserIdAndTestTypeAndTestId(userId, testType, testId);
-        if (opt.isEmpty()) return EMOJI_NOT_STARTED;
-        UserTestResult r = opt.get();
-        if (r.getWrongCount() == 0) return EMOJI_COMPLETED;
-        else return EMOJI_IN_PROGRESS;
     }
 
     @Transactional(readOnly = true)
@@ -471,9 +442,9 @@ public class NavigationService {
                 coursePage.getContent(),
                 coursePage.getNumber(),
                 coursePage.getTotalPages(),
-                coursePage.getTotalElements(), // <-- добавляем
-                coursePage.hasNext(),
-                coursePage.hasPrevious()
+                coursePage.getTotalElements(),
+                coursePage.hasPrevious(),
+                coursePage.hasNext()
         );
     }
 
@@ -576,9 +547,9 @@ public class NavigationService {
                 coursePage.getContent(),
                 coursePage.getNumber(),
                 coursePage.getTotalPages(),
-                coursePage.getTotalElements(), // <-- добавляем
-                coursePage.hasNext(),
-                coursePage.hasPrevious()
+                coursePage.getTotalElements(),
+                coursePage.hasPrevious(),
+                coursePage.hasNext()
         );
     }
 
@@ -644,18 +615,7 @@ public class NavigationService {
         );
     }
 
-    public PaginationResult<Block> getBlocksPage(Long topicId, int page) {
-        Pageable pageable = PageRequest.of(page, pageSize, Sort.by("orderIndex").ascending());
-        Page<Block> blockPage = blockRepository.findByTopicId(topicId, pageable);
-        return new PaginationResult<>(
-                blockPage.getContent(),
-                blockPage.getNumber(),
-                blockPage.getTotalPages(),
-                blockPage.getTotalElements(),
-                blockPage.hasPrevious(),
-                blockPage.hasNext()
-        );
-    }
+
 
     @Transactional(readOnly = true)
     public Optional<Block> getBlock(Long blockId) {
@@ -747,17 +707,6 @@ public class NavigationService {
     @Transactional(readOnly = true)
     public List<Question> getMistakeQuestions(Long userId) {
         return userMistakeRepository.findMistakeQuestionsByUserId(userId);
-    }
-
-    private <T> PaginationResult<T> paginate(List<T> fullList, int page) {
-        int total = fullList.size();
-        int fromIndex = page * pageSize;
-        int toIndex = Math.min(fromIndex + pageSize, total);
-        boolean hasPrevious = page > 0;
-        boolean hasNext = toIndex < total;
-        List<T> items = (fromIndex < total) ? fullList.subList(fromIndex, toIndex) : Collections.emptyList();
-        int totalPages = (total + pageSize - 1) / pageSize;
-        return new PaginationResult<>(items, page, totalPages, total, hasPrevious, hasNext); // добавили total
     }
 
     // Получение сущностей по ID

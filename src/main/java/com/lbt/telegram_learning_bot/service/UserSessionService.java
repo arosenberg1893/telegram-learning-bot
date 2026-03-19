@@ -82,11 +82,7 @@ public class UserSessionService {
                 .map(session -> {
                     try {
                         UserContext ctx = objectMapper.readValue(session.getContext(), UserContext.class);
-                        // Инициализация списков для предотвращения NPE
-                        if (ctx.getPendingImages() == null) ctx.setPendingImages(new ArrayList<>());
-                        if (ctx.getTestQuestionIds() == null) ctx.setTestQuestionIds(new ArrayList<>());
-                        if (ctx.getCurrentTopicBlockIds() == null) ctx.setCurrentTopicBlockIds(new ArrayList<>());
-                        if (ctx.getCurrentBlockQuestionIds() == null) ctx.setCurrentBlockQuestionIds(new ArrayList<>());
+                        initializeCollections(ctx);
                         return ctx;
                     } catch (JsonProcessingException e) {
                         log.error("Failed to deserialize user context for user {}", userId, e);
@@ -94,6 +90,16 @@ public class UserSessionService {
                     }
                 })
                 .orElse(new UserContext());
+    }
+
+    /**
+     * Инициализирует коллекции в контексте, чтобы избежать NPE при десериализации.
+     */
+    private void initializeCollections(UserContext ctx) {
+        if (ctx.getPendingImages() == null) ctx.setPendingImages(new ArrayList<>());
+        if (ctx.getTestQuestionIds() == null) ctx.setTestQuestionIds(new ArrayList<>());
+        if (ctx.getCurrentTopicBlockIds() == null) ctx.setCurrentTopicBlockIds(new ArrayList<>());
+        if (ctx.getCurrentBlockQuestionIds() == null) ctx.setCurrentBlockQuestionIds(new ArrayList<>());
     }
 
     @Transactional

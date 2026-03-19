@@ -17,6 +17,7 @@ import com.pengrad.telegrambot.request.DeleteMessage;
 import com.pengrad.telegrambot.request.EditMessageText;
 import com.pengrad.telegrambot.request.SendMediaGroup;
 import com.pengrad.telegrambot.request.SendMessage;
+import com.pengrad.telegrambot.model.request.ParseMode;
 import com.pengrad.telegrambot.response.SendResponse;
 import lombok.extern.slf4j.Slf4j;
 
@@ -99,7 +100,7 @@ public abstract class BaseHandler {
                 deleteMessage(userId, prevId);
             }
             SendMessage request = new SendMessage(userId, text).replyMarkup(keyboard);
-            request.parseMode(com.pengrad.telegrambot.model.request.ParseMode.Markdown);
+            request.parseMode(ParseMode.Markdown);
             SendResponse response = telegramBot.execute(request);
             if (!response.isOk()) {
                 log.error("Failed to send message to user {}: {}", userId, response.description());
@@ -108,7 +109,7 @@ public abstract class BaseHandler {
                 sessionService.updateSessionContext(userId, context);
             }
         } else {
-            SendMessage request = new SendMessage(userId, text).parseMode(com.pengrad.telegrambot.model.request.ParseMode.Markdown);
+            SendMessage request = new SendMessage(userId, text).parseMode(ParseMode.Markdown);
             var response = telegramBot.execute(request);
             if (!response.isOk()) {
                 log.error("Failed to send message to user {}: {}", userId, response.description());
@@ -122,7 +123,7 @@ public abstract class BaseHandler {
 
     protected void editMessage(Long userId, Integer messageId, String text, InlineKeyboardMarkup keyboard) {
         EditMessageText request = new EditMessageText(userId, messageId, text);
-        request.parseMode(com.pengrad.telegrambot.model.request.ParseMode.Markdown);
+        request.parseMode(ParseMode.Markdown);
         if (keyboard != null) {
             request.replyMarkup(keyboard);
         }
@@ -163,14 +164,14 @@ public abstract class BaseHandler {
 
         List<InputMedia> media = new ArrayList<>();
         for (Object img : images) {
-            String filePath = null;
-            String description = null;
-            if (img instanceof BlockImage) {
-                filePath = ((BlockImage) img).getFilePath();
-                description = ((BlockImage) img).getDescription();
-            } else if (img instanceof QuestionImage) {
-                filePath = ((QuestionImage) img).getFilePath();
-                description = ((QuestionImage) img).getDescription();
+            String filePath;
+            String description;
+            if (img instanceof BlockImage bi) {
+                filePath = bi.getFilePath();
+                description = bi.getDescription();
+            } else if (img instanceof QuestionImage qi) {
+                filePath = qi.getFilePath();
+                description = qi.getDescription();
             } else {
                 continue;
             }
@@ -262,9 +263,9 @@ public abstract class BaseHandler {
         long hours = seconds / 3600;
         long minutes = (seconds % 3600) / 60;
         if (hours > 0) {
-            return String.format("%d ч %d мин", hours, minutes);
+            return String.format(com.lbt.telegram_learning_bot.util.Constants.FORMAT_STUDY_TIME_HOURS, hours, minutes);
         } else {
-            return String.format("%d мин", minutes);
+            return String.format(com.lbt.telegram_learning_bot.util.Constants.FORMAT_STUDY_TIME_MINUTES, minutes);
         }
     }
 

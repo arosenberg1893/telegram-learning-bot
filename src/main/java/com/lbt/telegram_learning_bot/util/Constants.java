@@ -52,7 +52,7 @@ public final class Constants {
     public static final String BUTTON_NO = "Нет";
 
     // ========== Кнопки главного меню ==========
-    public static final String BUTTON_MY_COURSES = "📚 Мои курсы";;
+    public static final String BUTTON_MY_COURSES = "📚 Мои курсы";
     public static final String BUTTON_ALL_COURSES = "📋 Выбрать курс";
     public static final String BUTTON_SEARCH = "🔍 Найти курс";
     public static final String BUTTON_STATISTICS = "📊 Статистика";
@@ -128,8 +128,6 @@ public final class Constants {
     public static final String MSG_COURSE_DELETED = "Курс успешно удалён.";
     public static final String MSG_ERROR_DELETING_COURSE = "Ошибка при удалении курса.";
     public static final String MSG_COURSE_IMPORT_SUCCESS = "Успешно. Курс \"%s\" добавлен. Изображения не требуются.";
-    public static final String MSG_COURSE_UPDATED = "Успешно. Курс обновлён.\nПредыдущее название: %s\nНовое название: %s\nПредыдущее описание: %s\nНовое описание: %s";
-    public static final String MSG_SECTION_UPDATED = "Успешно. Раздел обновлён.\nПредыдущее название: %s\nНовое название: %s\nПредыдущее описание: %s\nНовое описание: %s";
     public static final String MSG_TOPIC_UPDATED = "Тема успешно обновлена.";
     public static final String MSG_IMAGES_COMPLETE = "Все изображения получены. Тема полностью обновлена.";
     public static final String MSG_IMAGE_REQUEST = "📸 Требуется изображение %d из %d:\n%s";
@@ -227,4 +225,12 @@ public final class Constants {
     public static final String CALLBACK_SETTINGS_NOTIFICATIONS = "settings_notifications";
     public static final String CALLBACK_SETTINGS_RESET = "settings_reset";
     public static final int ADMIN_PAGE_SIZE = 5;
+    // ========== Дополнительные форматы ==========
+    public static final String FORMAT_STUDY_TIME_HOURS = "%d ч %d мин";
+    public static final String FORMAT_STUDY_TIME_MINUTES = "%d мин";
+
+    // ========== Callback data настроек (с параметрами) ==========
+    public static final String CALLBACK_SETTINGS_PAGESIZE_SET = "settings_pagesize_set";
+    public static final String CALLBACK_SETTINGS_QUESTIONS_SET = "settings_questions_set";
+    public static final String CALLBACK_SETTINGS_RESET_CONFIRM = "settings_reset_confirm";
 }

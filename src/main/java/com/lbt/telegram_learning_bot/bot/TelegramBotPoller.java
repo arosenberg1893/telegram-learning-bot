@@ -8,29 +8,33 @@ import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-import static com.lbt.telegram_learning_bot.util.Constants.*;
 
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class TelegramBotPoller {
 
-    private final TelegramBot bot;          // внедряем готовый бин из конфигурации
+    private final TelegramBot bot;
     private final TelegramBotHandler handler;
 
     @PostConstruct
     public void init() {
         bot.setUpdatesListener(updates -> {
             for (Update update : updates) {
-                handler.handle(update);
+                try {
+                    handler.handle(update);
+                } catch (Exception e) {
+                    log.error("Unhandled exception processing update {}", update.updateId(), e);
+                }
             }
             return UpdatesListener.CONFIRMED_UPDATES_ALL;
-        }, Throwable::printStackTrace);
+        }, e -> log.error("Error in Telegram updates listener", e));
         log.info("Telegram bot polling started");
     }
 
     @PreDestroy
     public void destroy() {
         bot.removeGetUpdatesListener();
+        log.info("Telegram bot polling stopped");
     }
 }

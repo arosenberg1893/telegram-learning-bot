@@ -238,70 +238,74 @@ public class CourseImportService {
                         topic.setOrderIndex(topicOrder++);
                         topic = topicRepository.save(topic);
 
-                        int blockOrder = 0;
-                        if (topicDto.getBlocks() != null) {
-                            for (BlockImportDto blockDto : topicDto.getBlocks()) {
-                                Block block = new Block();
-                                block.setTopic(topic);
-                                block.setTextContent(blockDto.getText());
-                                block.setOrderIndex(blockOrder++);
-                                block = blockRepository.save(block);
-
-                                // Сохраняем изображения блока
-                                if (blockDto.getImages() != null) {
-                                    int imgOrder = 0;
-                                    for (String imageDesc : blockDto.getImages()) {
-                                        BlockImage blockImage = new BlockImage();
-                                        blockImage.setBlock(block);
-                                        blockImage.setDescription(imageDesc);
-                                        blockImage.setFilePath(""); // временно пусто
-                                        blockImage.setOrderIndex(imgOrder++);
-                                        blockImageRepository.save(blockImage);
-                                    }
-                                }
-
-                                int questionOrder = 0;
-                                if (blockDto.getQuestions() != null) {
-                                    for (QuestionImportDto qDto : blockDto.getQuestions()) {
-                                        Question question = new Question();
-                                        question.setBlock(block);
-                                        question.setText(qDto.getText());
-                                        question.setExplanation(qDto.getExplanation());
-                                        question.setOrderIndex(questionOrder++);
-                                        question = questionRepository.save(question);
-
-                                        // Варианты ответа
-                                        int optOrder = 0;
-                                        for (String optText : qDto.getOptions()) {
-                                            AnswerOption opt = new AnswerOption();
-                                            opt.setQuestion(question);
-                                            opt.setText(optText);
-                                            opt.setIsCorrect(optOrder == qDto.getCorrectIndex());
-                                            opt.setOrderIndex(optOrder++);
-                                            answerOptionRepository.save(opt);
-                                        }
-
-                                        // Изображения вопроса
-                                        if (qDto.getImages() != null) {
-                                            int imgOrder = 0;
-                                            for (String imgDesc : qDto.getImages()) {
-                                                QuestionImage qi = new QuestionImage();
-                                                qi.setQuestion(question);
-                                                qi.setDescription(imgDesc);
-                                                qi.setFilePath("");
-                                                qi.setOrderIndex(imgOrder++);
-                                                questionImageRepository.save(qi);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        createBlocksForTopic(topic, topicDto.getBlocks());
                     }
                 }
             }
         }
         return course;
+    }
+
+    /**
+     * Создаёт блоки с вопросами и изображениями для указанной темы.
+     * Вынесено для устранения дублирования между importCourse и importTopic.
+     */
+    private void createBlocksForTopic(Topic topic, java.util.List<BlockImportDto> blockDtos) {
+        if (blockDtos == null) return;
+        int blockOrder = 0;
+        for (BlockImportDto blockDto : blockDtos) {
+            Block block = new Block();
+            block.setTopic(topic);
+            block.setTextContent(blockDto.getText());
+            block.setOrderIndex(blockOrder++);
+            block = blockRepository.save(block);
+
+            if (blockDto.getImages() != null) {
+                int imgOrder = 0;
+                for (String imageDesc : blockDto.getImages()) {
+                    BlockImage blockImage = new BlockImage();
+                    blockImage.setBlock(block);
+                    blockImage.setDescription(imageDesc);
+                    blockImage.setFilePath("");
+                    blockImage.setOrderIndex(imgOrder++);
+                    blockImageRepository.save(blockImage);
+                }
+            }
+
+            if (blockDto.getQuestions() != null) {
+                int questionOrder = 0;
+                for (QuestionImportDto qDto : blockDto.getQuestions()) {
+                    Question question = new Question();
+                    question.setBlock(block);
+                    question.setText(qDto.getText());
+                    question.setExplanation(qDto.getExplanation());
+                    question.setOrderIndex(questionOrder++);
+                    question = questionRepository.save(question);
+
+                    int optOrder = 0;
+                    for (String optText : qDto.getOptions()) {
+                        AnswerOption opt = new AnswerOption();
+                        opt.setQuestion(question);
+                        opt.setText(optText);
+                        opt.setIsCorrect(optOrder == qDto.getCorrectIndex());
+                        opt.setOrderIndex(optOrder++);
+                        answerOptionRepository.save(opt);
+                    }
+
+                    if (qDto.getImages() != null) {
+                        int imgOrder = 0;
+                        for (String imgDesc : qDto.getImages()) {
+                            QuestionImage qi = new QuestionImage();
+                            qi.setQuestion(question);
+                            qi.setDescription(imgDesc);
+                            qi.setFilePath("");
+                            qi.setOrderIndex(imgOrder++);
+                            questionImageRepository.save(qi);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // Метод для обновления темы (для редактирования темы)
@@ -329,66 +333,7 @@ public class CourseImportService {
         newTopic.setOrderIndex(existingTopic.getOrderIndex());
         newTopic = topicRepository.save(newTopic);
 
-        // Создание блоков и вопросов (без изменений)
-        int blockOrder = 0;
-        if (dto.getBlocks() != null) {
-            for (BlockImportDto blockDto : dto.getBlocks()) {
-                Block block = new Block();
-                block.setTopic(newTopic);
-                block.setTextContent(blockDto.getText());
-                block.setOrderIndex(blockOrder++);
-                block = blockRepository.save(block);
-
-                // Изображения блока
-                if (blockDto.getImages() != null) {
-                    int imgOrder = 0;
-                    for (String imageDesc : blockDto.getImages()) {
-                        BlockImage blockImage = new BlockImage();
-                        blockImage.setBlock(block);
-                        blockImage.setDescription(imageDesc);
-                        blockImage.setFilePath("");
-                        blockImage.setOrderIndex(imgOrder++);
-                        blockImageRepository.save(blockImage);
-                    }
-                }
-
-                int questionOrder = 0;
-                if (blockDto.getQuestions() != null) {
-                    for (QuestionImportDto qDto : blockDto.getQuestions()) {
-                        Question question = new Question();
-                        question.setBlock(block);
-                        question.setText(qDto.getText());
-                        question.setExplanation(qDto.getExplanation());
-                        question.setOrderIndex(questionOrder++);
-                        question = questionRepository.save(question);
-
-                        // Варианты ответа
-                        int optOrder = 0;
-                        for (String optText : qDto.getOptions()) {
-                            AnswerOption opt = new AnswerOption();
-                            opt.setQuestion(question);
-                            opt.setText(optText);
-                            opt.setIsCorrect(optOrder == qDto.getCorrectIndex());
-                            opt.setOrderIndex(optOrder++);
-                            answerOptionRepository.save(opt);
-                        }
-
-                        // Изображения вопроса
-                        if (qDto.getImages() != null) {
-                            int imgOrder = 0;
-                            for (String imgDesc : qDto.getImages()) {
-                                QuestionImage qi = new QuestionImage();
-                                qi.setQuestion(question);
-                                qi.setDescription(imgDesc);
-                                qi.setFilePath("");
-                                qi.setOrderIndex(imgOrder++);
-                                questionImageRepository.save(qi);
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        createBlocksForTopic(newTopic, dto.getBlocks());
         return newTopic;
     }
 }

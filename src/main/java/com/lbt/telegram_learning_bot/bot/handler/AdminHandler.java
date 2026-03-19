@@ -84,46 +84,7 @@ public class AdminHandler extends BaseHandler {
         this.keyboardBuilder=keyboardBuilder;
     }
 
-    // ================== Публичные методы для диспетчера ==================
-    public void handleCreateCourse(Long userId, Integer messageId) {
-        promptCreateCourse(userId, messageId);
-    }
-
-    public void handleEditCourse(Long userId, Integer messageId) {
-        promptEditCourse(userId, messageId);
-    }
-
-    public void handleDeleteCourse(Long userId, Integer messageId) {
-        promptDeleteCourse(userId, messageId);
-    }
-
-    public void handleSelectCourseForEdit(Long userId, Integer messageId, Long courseId) {
-        handleSelectCourseForEditInternal(userId, messageId, courseId);
-    }
-
-    public void handleSelectCourseForDelete(Long userId, Integer messageId, Long courseId) {
-        handleSelectCourseForDeleteInternal(userId, messageId, courseId);
-    }
-
-    public void handleEditCourseAction(Long userId, Integer messageId, String action) {
-        handleEditCourseActionInternal(userId, messageId, action);
-    }
-
-    public void handleSelectSectionForEdit(Long userId, Integer messageId, Long sectionId) {
-        handleSelectSectionForEditInternal(userId, messageId, sectionId);
-    }
-
-    public void handleEditSectionAction(Long userId, Integer messageId, String action) {
-        handleEditSectionActionInternal(userId, messageId, action);
-    }
-
-    public void handleSelectTopicForEdit(Long userId, Integer messageId, Long topicId) {
-        handleSelectTopicForEditInternal(userId, messageId, topicId);
-    }
-
-    public void handleConfirmDeleteCourse(Long userId, Integer messageId, Long courseId) {
-        handleConfirmDeleteCourseInternal(userId, messageId, courseId);
-    }
+    // ================== Методы диспетчера и внутренние ==================
 
     public void handleRetry(Long userId, Integer messageId) {
         BotState state = sessionService.getCurrentState(userId);
@@ -136,18 +97,6 @@ public class AdminHandler extends BaseHandler {
             editMessage(userId, messageId, MSG_SEND_JSON_TOPIC, createAdminCancelKeyboardWithBackToTopics());
             // состояние остаётся EDIT_TOPIC_JSON
         }
-    }
-
-    public void handleCourseNameDescJson(Long userId, Message message) {
-        handleCourseNameDescJsonInternal(userId, message);
-    }
-
-    public void handleSectionNameDescJson(Long userId, Message message) {
-        handleSectionNameDescJsonInternal(userId, message);
-    }
-
-    public void handleTopicJson(Long userId, Message message) {
-        handleTopicJsonInternal(userId, message);
     }
 
     public void handleDocument(Long userId, Message message) {
@@ -174,7 +123,6 @@ public class AdminHandler extends BaseHandler {
         handleImageUploadInternal(userId, message);
     }
 
-    // ================== Внутренние методы ==================
     public void promptCreateCourse(Long userId, Integer messageId) {
         String text = MSG_SEND_JSON_COURSE;
         if (messageId != null) {
@@ -222,7 +170,7 @@ public class AdminHandler extends BaseHandler {
         editMessage(userId, messageId, text, keyboard);
     }
 
-    private void handleSelectCourseForEditInternal(Long userId, Integer messageId, Long courseId) {
+    public void handleSelectCourseForEdit(Long userId, Integer messageId, Long courseId) {
         UserContext context = sessionService.getCurrentContext(userId);
         context.setEditingCourseId(courseId);
         sessionService.updateSessionContext(userId, context);
@@ -230,8 +178,8 @@ public class AdminHandler extends BaseHandler {
         String text = MSG_WHAT_TO_CHANGE;
         InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup(
                 new InlineKeyboardButton[]{
-                        new InlineKeyboardButton(BUTTON_NAME_DESC).callbackData("edit_course_action:name_desc"),
-                        new InlineKeyboardButton(BUTTON_SECTIONS).callbackData("edit_course_action:sections")
+                        new InlineKeyboardButton(BUTTON_NAME_DESC).callbackData(CALLBACK_EDIT_COURSE_ACTION + ":" + ACTION_NAME_DESC),
+                        new InlineKeyboardButton(BUTTON_SECTIONS).callbackData(CALLBACK_EDIT_COURSE_ACTION + ":" + ACTION_SECTIONS)
                 }
         );
         keyboard.addRow(new InlineKeyboardButton(BUTTON_BACK).callbackData(CALLBACK_EDIT_COURSE));
@@ -239,16 +187,16 @@ public class AdminHandler extends BaseHandler {
         sessionService.updateSessionState(userId, BotState.EDIT_COURSE_CHOOSE_ACTION);
     }
 
-    private void handleSelectCourseForDeleteInternal(Long userId, Integer messageId, Long courseId) {
+    public void handleSelectCourseForDelete(Long userId, Integer messageId, Long courseId) {
         String text = MSG_CONFIRM_DELETE_COURSE;
         InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup(
-                new InlineKeyboardButton(BUTTON_YES_DELETE).callbackData("confirm_delete_course:" + courseId),
+                new InlineKeyboardButton(BUTTON_YES_DELETE).callbackData(CALLBACK_CONFIRM_DELETE_COURSE + ":" + courseId),
                 new InlineKeyboardButton(BUTTON_NO).callbackData(CALLBACK_EDIT_COURSE)
         );
         editMessage(userId, messageId, text, keyboard);
     }
 
-    private void handleEditCourseActionInternal(Long userId, Integer messageId, String action) {
+    public void handleEditCourseAction(Long userId, Integer messageId, String action) {
         if (ACTION_NAME_DESC.equals(action)) {
             editMessage(userId, messageId, MSG_SEND_JSON_COURSE_NAME_DESC, createCancelKeyboard());
             sessionService.updateSessionState(userId, BotState.EDIT_COURSE_NAME_DESC);
@@ -265,16 +213,16 @@ public class AdminHandler extends BaseHandler {
         }
     }
 
-    private void handleSelectSectionForEditInternal(Long userId, Integer messageId, Long sectionId) {
+    public void handleSelectSectionForEdit(Long userId, Integer messageId, Long sectionId) {
         UserContext context = sessionService.getCurrentContext(userId);
         context.setEditingSectionId(sectionId);
         sessionService.updateSessionContext(userId, context);
 
-        String text = "Что хотите изменить в разделе?";
+        String text = MSG_WHAT_TO_CHANGE_SECTION;
         InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup(
                 new InlineKeyboardButton[]{
-                        new InlineKeyboardButton(BUTTON_NAME_DESC).callbackData("edit_section_action:name_desc"),
-                        new InlineKeyboardButton(BUTTON_TOPICS).callbackData("edit_section_action:topics")
+                        new InlineKeyboardButton(BUTTON_NAME_DESC).callbackData(CALLBACK_EDIT_SECTION_ACTION + ":" + ACTION_NAME_DESC),
+                        new InlineKeyboardButton(BUTTON_TOPICS).callbackData(CALLBACK_EDIT_SECTION_ACTION + ":" + ACTION_TOPICS)
                 }
         );
         keyboard.addRow(new InlineKeyboardButton(BUTTON_BACK).callbackData(CALLBACK_ADMIN_BACK_TO_SECTIONS));
@@ -282,7 +230,7 @@ public class AdminHandler extends BaseHandler {
         sessionService.updateSessionState(userId, BotState.EDIT_SECTION_NAME_DESC);
     }
 
-    private void handleEditSectionActionInternal(Long userId, Integer messageId, String action) {
+    public void handleEditSectionAction(Long userId, Integer messageId, String action) {
         if (ACTION_NAME_DESC.equals(action)) {
             editMessage(userId, messageId, MSG_SEND_JSON_SECTION_NAME_DESC, createCancelKeyboard());
             sessionService.updateSessionState(userId, BotState.EDIT_SECTION_NAME_DESC);
@@ -299,7 +247,7 @@ public class AdminHandler extends BaseHandler {
         }
     }
 
-    private void handleSelectTopicForEditInternal(Long userId, Integer messageId, Long topicId) {
+    public void handleSelectTopicForEdit(Long userId, Integer messageId, Long topicId) {
         UserContext context = sessionService.getCurrentContext(userId);
         context.setEditingTopicId(topicId);
         // Дополнительно можно сохранить sectionId, если он ещё не установлен
@@ -315,7 +263,7 @@ public class AdminHandler extends BaseHandler {
         sessionService.updateSessionState(userId, BotState.EDIT_TOPIC_JSON);
     }
 
-    private void handleConfirmDeleteCourseInternal(Long userId, Integer messageId, Long courseId) {
+    public void handleConfirmDeleteCourse(Long userId, Integer messageId, Long courseId) {
         try {
             userProgressRepository.deleteByCourseId(courseId);
             courseRepository.deleteById(courseId);
@@ -362,7 +310,7 @@ public class AdminHandler extends BaseHandler {
         }
     }
 
-    private void handleCourseNameDescJsonInternal(Long userId, Message message) {
+    public void handleCourseNameDescJson(Long userId, Message message) {
         var document = message.document();
         String fileId = document.fileId();
         try {
@@ -399,7 +347,7 @@ public class AdminHandler extends BaseHandler {
         }
     }
 
-    private void handleSectionNameDescJsonInternal(Long userId, Message message) {
+    public void handleSectionNameDescJson(Long userId, Message message) {
         var document = message.document();
         String fileId = document.fileId();
         try {
@@ -446,7 +394,7 @@ public class AdminHandler extends BaseHandler {
         }
     }
 
-    private void handleTopicJsonInternal(Long userId, Message message) {
+    public void handleTopicJson(Long userId, Message message) {
         Integer progressMessageId = sendProgressMessage(userId);
         try {
             var document = message.document();

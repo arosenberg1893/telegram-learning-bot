@@ -13,42 +13,47 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Service
 public class RateLimiterService {
 
+    private static final long MILLIS_PER_MINUTE = 60_000L;
+
     @Value("${rate.limit.max-requests-per-minute:30}")
     private int maxRequestsPerMinute;
 
-    // Храним для каждого userId: количество запросов за текущую минуту и timestamp начала минуты
     private final Map<Long, UserRequestInfo> requestCounts = new ConcurrentHashMap<>();
 
+    /**
+     * Проверяет, разрешён ли запрос для данного пользователя.
+     * Использует скользящее окно в 1 минуту.
+     */
     public boolean isAllowed(Long userId) {
-        long currentMinute = System.currentTimeMillis() / 60_000; // минуты с эпохи
+        long currentMinute = System.currentTimeMillis() / MILLIS_PER_MINUTE;
         UserRequestInfo info = requestCounts.compute(userId, (key, existing) -> {
-            if (existing == null || existing.getMinute() != currentMinute) {
+            if (existing == null || existing.minute() != currentMinute) {
                 return new UserRequestInfo(currentMinute, new AtomicInteger(1));
-            } else {
-                existing.getCount().incrementAndGet();
-                return existing;
             }
+            existing.count().incrementAndGet();
+            return existing;
         });
-        return info.getCount().get() <= maxRequestsPerMinute;
+        return info.count().get() <= maxRequestsPerMinute;
     }
 
-    // Очистка старых записей раз в минуту (не обязательно, так как мы обновляем по минутам)
-    @Scheduled(fixedDelay = 60_000)
+    /**
+     * Очищает устаревшие записи раз в минуту.
+     */
+    @Scheduled(fixedDelay = MILLIS_PER_MINUTE)
     public void cleanOldEntries() {
-        long currentMinute = System.currentTimeMillis() / 60_000;
-        requestCounts.entrySet().removeIf(entry -> entry.getValue().getMinute() != currentMinute);
-    }
-
-    private static class UserRequestInfo {
-        private final long minute;
-        private final AtomicInteger count;
-
-        public UserRequestInfo(long minute, AtomicInteger count) {
-            this.minute = minute;
-            this.count = count;
+        long currentMinute = System.currentTimeMillis() / MILLIS_PER_MINUTE;
+        int removed = 0;
+        var iterator = requestCounts.entrySet().iterator();
+        while (iterator.hasNext()) {
+            if (iterator.next().getValue().minute() != currentMinute) {
+                iterator.remove();
+                removed++;
+            }
         }
-
-        public long getMinute() { return minute; }
-        public AtomicInteger getCount() { return count; }
+        if (removed > 0) {
+            log.debug("Rate limiter cleanup: removed {} stale entries", removed);
+        }
     }
+
+    private record UserRequestInfo(long minute, AtomicInteger count) {}
 }

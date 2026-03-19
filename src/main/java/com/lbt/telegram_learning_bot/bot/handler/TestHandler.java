@@ -66,12 +66,7 @@ public class TestHandler extends BaseHandler {
         }
         questions = new ArrayList<>(questions);
         Collections.shuffle(questions);
-        context.setTestMode(true);
-        context.setTestType(TEST_TYPE_TOPIC);
-        context.setTestQuestionIds(questions.stream().map(Question::getId).toList());
-        context.setCurrentTestQuestionIndex(0);
-        context.setCorrectAnswers(0);
-        context.setWrongAnswers(0);
+        initTestContext(context, TEST_TYPE_TOPIC, questions);
         context.setCurrentTopicId(topicId);
         sessionService.updateSession(userId, BotState.QUESTION, context);
         navigationService.getQuestionWithImagesAndOptions(questions.get(0).getId())
@@ -96,12 +91,7 @@ public class TestHandler extends BaseHandler {
         }
         questions = new ArrayList<>(questions);
         Collections.shuffle(questions);
-        context.setTestMode(true);
-        context.setTestType(TEST_TYPE_SECTION);
-        context.setTestQuestionIds(questions.stream().map(Question::getId).toList());
-        context.setCurrentTestQuestionIndex(0);
-        context.setCorrectAnswers(0);
-        context.setWrongAnswers(0);
+        initTestContext(context, TEST_TYPE_SECTION, questions);
         context.setCurrentSectionId(sectionId);
         sessionService.updateSession(userId, BotState.QUESTION, context);
         navigationService.getQuestionWithImagesAndOptions(questions.get(0).getId())
@@ -126,12 +116,7 @@ public class TestHandler extends BaseHandler {
         }
         questions = new ArrayList<>(questions);
         Collections.shuffle(questions);
-        context.setTestMode(true);
-        context.setTestType(TEST_TYPE_COURSE);
-        context.setTestQuestionIds(questions.stream().map(Question::getId).toList());
-        context.setCurrentTestQuestionIndex(0);
-        context.setCorrectAnswers(0);
-        context.setWrongAnswers(0);
+        initTestContext(context, TEST_TYPE_COURSE, questions);
         context.setCurrentCourseId(courseId);
         context.setPreviousMenuState(sessionService.getCurrentState(userId).name());
         sessionService.updateSession(userId, BotState.QUESTION, context);
@@ -152,16 +137,24 @@ public class TestHandler extends BaseHandler {
         }
         Collections.shuffle(questions);
         UserContext context = sessionService.getCurrentContext(userId);
-        context.setTestMode(true);
-        context.setTestType(TEST_TYPE_MISTAKE);
-        context.setTestQuestionIds(questions.stream().map(Question::getId).toList());
-        context.setCurrentTestQuestionIndex(0);
-        context.setCorrectAnswers(0);
-        context.setWrongAnswers(0);
+        initTestContext(context, TEST_TYPE_MISTAKE, questions);
         sessionService.updateSession(userId, BotState.QUESTION, context);
         navigationService.getQuestionWithImagesAndOptions(questions.get(0).getId())
                 .ifPresent(question -> showTestQuestion(userId, messageId, question));
     }
+
+    /**
+     * Общий метод инициализации состояния теста в контексте пользователя.
+     */
+    private void initTestContext(UserContext context, String testType, List<Question> questions) {
+        context.setTestMode(true);
+        context.setTestType(testType);
+        context.setTestQuestionIds(questions.stream().map(Question::getId).toList());
+        context.setCurrentTestQuestionIndex(0);
+        context.setCorrectAnswers(0);
+        context.setWrongAnswers(0);
+    }
+
     private void updateAfterAnswer(Long userId, Long questionId, boolean correct, UserContext context) {
         boolean isLearning = !context.isTestMode();
         navigationService.saveAnswerProgress(userId, questionId, correct, isLearning);
@@ -345,16 +338,10 @@ public class TestHandler extends BaseHandler {
     }
 
     private InlineKeyboardMarkup buildResultKeyboardAfterWrong(UserContext context, boolean isLast) {
-        if (isLast) {
-            // Для последнего вопроса после неправильного ответа кнопка "Далее" ведёт к статистике
-            return new InlineKeyboardMarkup(
-                    new InlineKeyboardButton[]{new InlineKeyboardButton(BUTTON_NEXT).callbackData(CALLBACK_NEXT_QUESTION)}
-            );
-        } else {
-            return new InlineKeyboardMarkup(
-                    new InlineKeyboardButton[]{new InlineKeyboardButton(BUTTON_NEXT).callbackData(CALLBACK_NEXT_QUESTION)}
-            );
-        }
+        // После неправильного ответа всегда показываем кнопку "Далее" к следующему вопросу или итогам
+        return new InlineKeyboardMarkup(
+                new InlineKeyboardButton[]{new InlineKeyboardButton(BUTTON_NEXT).callbackData(CALLBACK_NEXT_QUESTION)}
+        );
     }
 
     private void saveTestResultIfNeeded(Long userId, UserContext context) {

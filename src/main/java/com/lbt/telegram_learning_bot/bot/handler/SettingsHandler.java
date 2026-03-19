@@ -91,9 +91,9 @@ public class SettingsHandler extends BaseHandler {
     public void showPageSizeOptions(Long userId, Integer messageId) {
         String text = "Выберите количество элементов на странице:";
         InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup(
-                new InlineKeyboardButton("5").callbackData("settings_pagesize_set:5"),
-                new InlineKeyboardButton("10").callbackData("settings_pagesize_set:10"),
-                new InlineKeyboardButton("15").callbackData("settings_pagesize_set:15")
+                new InlineKeyboardButton("5").callbackData(CALLBACK_SETTINGS_PAGESIZE_SET + ":5"),
+                new InlineKeyboardButton("10").callbackData(CALLBACK_SETTINGS_PAGESIZE_SET + ":10"),
+                new InlineKeyboardButton("15").callbackData(CALLBACK_SETTINGS_PAGESIZE_SET + ":15")
         ).addRow(
                 new InlineKeyboardButton("🔙 Назад").callbackData(CALLBACK_SETTINGS)
         );
@@ -108,10 +108,10 @@ public class SettingsHandler extends BaseHandler {
     public void showQuestionsPerBlockOptions(Long userId, Integer messageId) {
         String text = "Выберите количество вопросов на блок в тестах раздела/курса:";
         InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup(
-                new InlineKeyboardButton("1").callbackData("settings_questions_set:1"),
-                new InlineKeyboardButton("2").callbackData("settings_questions_set:2"),
-                new InlineKeyboardButton("3").callbackData("settings_questions_set:3"),
-                new InlineKeyboardButton("5").callbackData("settings_questions_set:5")
+                new InlineKeyboardButton("1").callbackData(CALLBACK_SETTINGS_QUESTIONS_SET + ":1"),
+                new InlineKeyboardButton("2").callbackData(CALLBACK_SETTINGS_QUESTIONS_SET + ":2"),
+                new InlineKeyboardButton("3").callbackData(CALLBACK_SETTINGS_QUESTIONS_SET + ":3"),
+                new InlineKeyboardButton("5").callbackData(CALLBACK_SETTINGS_QUESTIONS_SET + ":5")
         ).addRow(
                 new InlineKeyboardButton("🔙 Назад").callbackData(CALLBACK_SETTINGS)
         );
@@ -126,7 +126,7 @@ public class SettingsHandler extends BaseHandler {
     public void confirmResetProgress(Long userId, Integer messageId) {
         String text = "⚠️ Вы уверены, что хотите **полностью сбросить весь прогресс обучения**? Все ваши ответы, ошибки и время изучения будут удалены. Это действие необратимо.";
         InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup(
-                new InlineKeyboardButton("✅ Да, сбросить").callbackData("settings_reset_confirm"),
+                new InlineKeyboardButton("✅ Да, сбросить").callbackData(CALLBACK_SETTINGS_RESET_CONFIRM),
                 new InlineKeyboardButton("❌ Отмена").callbackData(CALLBACK_SETTINGS)
         );
         editMessage(userId, messageId, text, keyboard);

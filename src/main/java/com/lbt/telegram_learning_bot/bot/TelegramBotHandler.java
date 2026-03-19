@@ -27,18 +27,14 @@ import static com.lbt.telegram_learning_bot.util.Constants.*;
 @Component
 public class TelegramBotHandler extends BaseHandler {
 
-    private final AdminUserRepository adminUserRepository;
     private final PdfExportService pdfExportService;
-    private final NavigationService navigationService; // если не унаследовано
-    private final TelegramBot telegramBot;
-    private final UserSessionService sessionService;
     private final CourseNavigationHandler courseNavHandler;
     private final TestHandler testHandler;
     private final AdminHandler adminHandler;
-    @Value("${message.max-length:2000}")
-    private int maxMessageLength;
     private final RateLimiterService rateLimiterService;
     private final SettingsHandler settingsHandler;
+    @Value("${message.max-length:2000}")
+    private int maxMessageLength;
 
     @PostConstruct
     public void init() {
@@ -49,24 +45,20 @@ public class TelegramBotHandler extends BaseHandler {
                               UserSessionService sessionService,
                               NavigationService navigationService,
                               AdminUserRepository adminUserRepository,
+                              UserSettingsService userSettingsService,
                               PdfExportService pdfExportService,
                               CourseNavigationHandler courseNavHandler,
                               RateLimiterService rateLimiterService,
                               TestHandler testHandler,
                               AdminHandler adminHandler,
-                              SettingsHandler settingsHandler,          // новый параметр
-                              UserSettingsService userSettingsService) { // новый параметр
+                              SettingsHandler settingsHandler) {
         super(telegramBot, sessionService, navigationService, adminUserRepository, userSettingsService);
-        this.telegramBot = telegramBot;
-        this.sessionService = sessionService;
-        this.navigationService = navigationService;
-        this.adminUserRepository = adminUserRepository;
         this.pdfExportService = pdfExportService;
         this.courseNavHandler = courseNavHandler;
         this.testHandler = testHandler;
         this.adminHandler = adminHandler;
         this.rateLimiterService = rateLimiterService;
-        this.settingsHandler = settingsHandler;  // инициализация
+        this.settingsHandler = settingsHandler;
     }
 
     private boolean isAdminState(BotState state) {
@@ -350,19 +342,19 @@ public class TelegramBotHandler extends BaseHandler {
             case CALLBACK_SETTINGS_RESET:
                 settingsHandler.confirmResetProgress(userId, messageId);
                 break;
-            case "settings_pagesize_set":
+            case CALLBACK_SETTINGS_PAGESIZE_SET:
                 if (parts.length >= 2) {
                     int size = Integer.parseInt(parts[1]);
                     settingsHandler.setPageSize(userId, messageId, size);
                 }
                 break;
-            case "settings_questions_set":
+            case CALLBACK_SETTINGS_QUESTIONS_SET:
                 if (parts.length >= 2) {
                     int count = Integer.parseInt(parts[1]);
                     settingsHandler.setQuestionsPerBlock(userId, messageId, count);
                 }
                 break;
-            case "settings_reset_confirm":
+            case CALLBACK_SETTINGS_RESET_CONFIRM:
                 settingsHandler.resetProgress(userId, messageId);
                 break;
             default:
