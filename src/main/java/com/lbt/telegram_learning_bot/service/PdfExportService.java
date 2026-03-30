@@ -23,6 +23,7 @@ import java.io.IOException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+
 import static com.lbt.telegram_learning_bot.util.Constants.*;
 
 @Slf4j
@@ -30,9 +31,11 @@ import static com.lbt.telegram_learning_bot.util.Constants.*;
 @RequiredArgsConstructor
 public class PdfExportService {
 
+    private final FileStorageService fileStorageService;
     private final CourseRepository courseRepository;
     private final UserProgressRepository userProgressRepository;
     private final NavigationService navigationService;
+
     private String formatStudyTime(long seconds) {
         long hours = seconds / 3600;
         long minutes = (seconds % 3600) / 60;
@@ -42,6 +45,14 @@ public class PdfExportService {
             return String.format("%d мин", minutes);
         }
     }
+
+    public String saveStatisticsPdf(Long userId, String userName) throws Exception {
+        byte[] pdfBytes = generateStatisticsPdf(userId, userName);
+        String fileName = String.format("Статистика обучения %s на %s.pdf",
+                userName, LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH-mm")));
+        return fileStorageService.saveFile(pdfBytes, fileName);
+    }
+
     public byte[] generateStatisticsPdf(Long userId, String userName) throws Exception {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         PdfWriter writer = new PdfWriter(baos);
@@ -50,7 +61,6 @@ public class PdfExportService {
 
         PdfFont font = loadFont();
 
-        // Заголовок
         Paragraph title = new Paragraph(PDF_TITLE)
                 .setFont(font)
                 .setFontSize(20)
@@ -68,7 +78,6 @@ public class PdfExportService {
                 .setTextAlignment(TextAlignment.CENTER));
         document.add(new Paragraph("\n"));
 
-        // Общая статистика
         long totalStarted = navigationService.getTotalStartedCourses(userId);
         long completedCourses = navigationService.getCompletedCoursesCount(userId);
         String hardestCourse = navigationService.getHardestCourse(userId);
@@ -88,7 +97,6 @@ public class PdfExportService {
                 .setFont(font));
         document.add(new Paragraph("\n"));
 
-        // Прогресс по курсам
         document.add(new Paragraph(PDF_PROGRESS)
                 .setFont(font)
                 .setFontSize(16)
@@ -97,7 +105,6 @@ public class PdfExportService {
         Table table = new Table(UnitValue.createPercentArray(new float[]{40, 20, 40}));
         table.setWidth(UnitValue.createPercentValue(100));
 
-        // Заголовки таблицы
         table.addHeaderCell(createCell(PDF_COLUMN_COURSE, font, true));
         table.addHeaderCell(createCell(PDF_COLUMN_PROGRESS, font, true));
         table.addHeaderCell(createCell(PDF_COLUMN_STATUS, font, true));

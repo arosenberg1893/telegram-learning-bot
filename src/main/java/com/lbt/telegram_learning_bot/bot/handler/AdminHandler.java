@@ -9,18 +9,14 @@ import com.lbt.telegram_learning_bot.dto.SectionNameDescDto;
 import com.lbt.telegram_learning_bot.dto.TopicImportDto;
 import com.lbt.telegram_learning_bot.entity.*;
 import com.lbt.telegram_learning_bot.exception.InvalidJsonException;
+import com.lbt.telegram_learning_bot.platform.MessageSender;
 import com.lbt.telegram_learning_bot.repository.*;
 import com.lbt.telegram_learning_bot.service.CourseImportService;
 import com.lbt.telegram_learning_bot.service.NavigationService;
 import com.lbt.telegram_learning_bot.service.UserSessionService;
 import com.lbt.telegram_learning_bot.service.UserSettingsService;
-import com.pengrad.telegrambot.TelegramBot;
 import com.pengrad.telegrambot.model.Message;
-import com.pengrad.telegrambot.model.request.InlineKeyboardButton;
-import com.pengrad.telegrambot.model.request.InlineKeyboardMarkup;
-import com.pengrad.telegrambot.request.GetFile;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
@@ -32,12 +28,15 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static com.lbt.telegram_learning_bot.util.Constants.*;
+import com.lbt.telegram_learning_bot.platform.BotButton;
+import com.lbt.telegram_learning_bot.platform.BotKeyboard;
+import com.lbt.telegram_learning_bot.platform.FileDownloader;
 
 @Slf4j
-@Component
 public class AdminHandler extends BaseHandler {
 
     private final CourseImportService courseImportService;
+    private final FileDownloader fileDownloader;
     private final CourseRepository courseRepository;
     private final SectionRepository sectionRepository;
     private final TopicRepository topicRepository;
@@ -51,7 +50,8 @@ public class AdminHandler extends BaseHandler {
     private final ObjectMapper objectMapper;
     private final KeyboardBuilder keyboardBuilder;
 
-    public AdminHandler(TelegramBot telegramBot,
+    public AdminHandler(MessageSender messageSender,
+                        FileDownloader fileDownloader,
                         UserSessionService sessionService,
                         NavigationService navigationService,
                         CourseImportService courseImportService,
@@ -67,8 +67,8 @@ public class AdminHandler extends BaseHandler {
                         AdminUserRepository adminUserRepository,
                         UserProgressRepository userProgressRepository,
                         ObjectMapper objectMapper,
-                        UserSettingsService userSettingsService) {   // новый параметр
-        super(telegramBot, sessionService, navigationService, adminUserRepository, userSettingsService);
+                        UserSettingsService userSettingsService) {
+        super(messageSender, sessionService, navigationService, adminUserRepository, userSettingsService);
         this.courseImportService = courseImportService;
         this.courseRepository = courseRepository;
         this.sectionRepository = sectionRepository;
@@ -81,7 +81,8 @@ public class AdminHandler extends BaseHandler {
         this.adminUserRepository = adminUserRepository;
         this.userProgressRepository = userProgressRepository;
         this.objectMapper = objectMapper;
-        this.keyboardBuilder=keyboardBuilder;
+        this.keyboardBuilder = keyboardBuilder;
+        this.fileDownloader = fileDownloader;
     }
 
     // ================== Методы диспетчера и внутренние ==================
@@ -93,17 +94,13 @@ public class AdminHandler extends BaseHandler {
         } else if (state == BotState.AWAITING_IMAGE) {
             promptCurrentImage(userId, messageId);
         } else if (state == BotState.EDIT_TOPIC_JSON) {
-            // Повторно запрашиваем JSON для темы
             editMessage(userId, messageId, MSG_SEND_JSON_TOPIC, createAdminCancelKeyboardWithBackToTopics());
-            // состояние остаётся EDIT_TOPIC_JSON
         }
     }
 
+    // Для Telegram
     public void handleDocument(Long userId, Message message) {
         BotState currentState = sessionService.getCurrentState(userId);
-        var document = message.document();
-        if (document == null) return;
-
         if (currentState == BotState.AWAITING_COURSE_JSON) {
             handleCourseJson(userId, message);
         } else if (currentState == BotState.EDIT_COURSE_NAME_DESC) {
@@ -114,6 +111,24 @@ public class AdminHandler extends BaseHandler {
             handleTopicJson(userId, message);
         } else if (currentState == BotState.AWAITING_IMAGE) {
             handleImageUpload(userId, message);
+        } else {
+            sendMessage(userId, MSG_UNEXPECTED_FILE, createCancelKeyboard());
+        }
+    }
+
+    // Для VK
+    public void handleDocument(Long userId, Object fileReference) {
+        BotState currentState = sessionService.getCurrentState(userId);
+        if (currentState == BotState.AWAITING_COURSE_JSON) {
+            handleCourseJson(userId, fileReference);
+        } else if (currentState == BotState.EDIT_COURSE_NAME_DESC) {
+            handleCourseNameDescJson(userId, fileReference);
+        } else if (currentState == BotState.EDIT_SECTION_NAME_DESC) {
+            handleSectionNameDescJson(userId, fileReference);
+        } else if (currentState == BotState.EDIT_TOPIC_JSON) {
+            handleTopicJson(userId, fileReference);
+        } else if (currentState == BotState.AWAITING_IMAGE) {
+            handleImageUpload(userId, null);
         } else {
             sendMessage(userId, MSG_UNEXPECTED_FILE, createCancelKeyboard());
         }
@@ -153,7 +168,7 @@ public class AdminHandler extends BaseHandler {
         }
         String text = String.format(FORMAT_EDIT_COURSES_HEADER,
                 page + 1, result.getTotalPages(), result.getTotalItems());
-        InlineKeyboardMarkup keyboard = keyboardBuilder.buildCoursesKeyboardForAdmin(result, SOURCE_MY_COURSES, CALLBACK_SELECT_COURSE_FOR_EDIT);
+        BotKeyboard keyboard = keyboardBuilder.buildCoursesKeyboardForAdminBot(result, SOURCE_MY_COURSES, CALLBACK_SELECT_COURSE_FOR_EDIT);
         editMessage(userId, messageId, text, keyboard);
     }
 
@@ -165,8 +180,8 @@ public class AdminHandler extends BaseHandler {
         }
         String text = String.format(FORMAT_DELETE_COURSES_HEADER,
                 page + 1, result.getTotalPages(), result.getTotalItems());
-        InlineKeyboardMarkup keyboard = keyboardBuilder.buildCoursesKeyboardForAdmin(
-                result, SOURCE_MY_COURSES, CALLBACK_SELECT_COURSE_FOR_DELETE); // ✅ исправлено
+        BotKeyboard keyboard = keyboardBuilder.buildCoursesKeyboardForAdminBot(
+                result, SOURCE_MY_COURSES, CALLBACK_SELECT_COURSE_FOR_DELETE);
         editMessage(userId, messageId, text, keyboard);
     }
 
@@ -176,23 +191,17 @@ public class AdminHandler extends BaseHandler {
         sessionService.updateSessionContext(userId, context);
 
         String text = MSG_WHAT_TO_CHANGE;
-        InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup(
-                new InlineKeyboardButton[]{
-                        new InlineKeyboardButton(BUTTON_NAME_DESC).callbackData(CALLBACK_EDIT_COURSE_ACTION + ":" + ACTION_NAME_DESC),
-                        new InlineKeyboardButton(BUTTON_SECTIONS).callbackData(CALLBACK_EDIT_COURSE_ACTION + ":" + ACTION_SECTIONS)
-                }
-        );
-        keyboard.addRow(new InlineKeyboardButton(BUTTON_BACK).callbackData(CALLBACK_EDIT_COURSE));
+        BotKeyboard keyboard = new BotKeyboard().addRow(BotButton.callback(BUTTON_NAME_DESC, CALLBACK_EDIT_COURSE_ACTION + ":" + ACTION_NAME_DESC),
+                BotButton.callback(BUTTON_SECTIONS, CALLBACK_EDIT_COURSE_ACTION + ":" + ACTION_SECTIONS));
+        keyboard.addRow(BotButton.callback(BUTTON_BACK, CALLBACK_EDIT_COURSE));
         editMessage(userId, messageId, text, keyboard);
         sessionService.updateSessionState(userId, BotState.EDIT_COURSE_CHOOSE_ACTION);
     }
 
     public void handleSelectCourseForDelete(Long userId, Integer messageId, Long courseId) {
         String text = MSG_CONFIRM_DELETE_COURSE;
-        InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup(
-                new InlineKeyboardButton(BUTTON_YES_DELETE).callbackData(CALLBACK_CONFIRM_DELETE_COURSE + ":" + courseId),
-                new InlineKeyboardButton(BUTTON_NO).callbackData(CALLBACK_EDIT_COURSE)
-        );
+        BotKeyboard keyboard = new BotKeyboard().addRow(BotButton.callback(BUTTON_YES_DELETE, CALLBACK_CONFIRM_DELETE_COURSE + ":" + courseId),
+                BotButton.callback(BUTTON_NO, CALLBACK_EDIT_COURSE));
         editMessage(userId, messageId, text, keyboard);
     }
 
@@ -205,8 +214,7 @@ public class AdminHandler extends BaseHandler {
             Long courseId = context.getEditingCourseId();
             var result = navigationService.getSectionsPage(courseId, 0, ADMIN_PAGE_SIZE);
             String text = MSG_SELECT_SECTION;
-            // Добавлен четвёртый аргумент CALLBACK_EDIT_COURSE
-            InlineKeyboardMarkup keyboard = keyboardBuilder.buildSectionsKeyboardForAdmin(
+            BotKeyboard keyboard = keyboardBuilder.buildSectionsKeyboardForAdminBot(
                     result, courseId, CALLBACK_SELECT_SECTION_FOR_EDIT, CALLBACK_EDIT_COURSE);
             editMessage(userId, messageId, text, keyboard);
             sessionService.updateSessionState(userId, BotState.EDIT_COURSE_SECTION_CHOOSE);
@@ -219,13 +227,9 @@ public class AdminHandler extends BaseHandler {
         sessionService.updateSessionContext(userId, context);
 
         String text = MSG_WHAT_TO_CHANGE_SECTION;
-        InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup(
-                new InlineKeyboardButton[]{
-                        new InlineKeyboardButton(BUTTON_NAME_DESC).callbackData(CALLBACK_EDIT_SECTION_ACTION + ":" + ACTION_NAME_DESC),
-                        new InlineKeyboardButton(BUTTON_TOPICS).callbackData(CALLBACK_EDIT_SECTION_ACTION + ":" + ACTION_TOPICS)
-                }
-        );
-        keyboard.addRow(new InlineKeyboardButton(BUTTON_BACK).callbackData(CALLBACK_ADMIN_BACK_TO_SECTIONS));
+        BotKeyboard keyboard = new BotKeyboard().addRow(BotButton.callback(BUTTON_NAME_DESC, CALLBACK_EDIT_SECTION_ACTION + ":" + ACTION_NAME_DESC),
+                BotButton.callback(BUTTON_TOPICS, CALLBACK_EDIT_SECTION_ACTION + ":" + ACTION_TOPICS));
+        keyboard.addRow(BotButton.callback(BUTTON_BACK, CALLBACK_ADMIN_BACK_TO_SECTIONS));
         editMessage(userId, messageId, text, keyboard);
         sessionService.updateSessionState(userId, BotState.EDIT_SECTION_NAME_DESC);
     }
@@ -239,8 +243,7 @@ public class AdminHandler extends BaseHandler {
             Long sectionId = context.getEditingSectionId();
             var result = navigationService.getTopicsPage(sectionId, 0, ADMIN_PAGE_SIZE);
             String text = MSG_SELECT_TOPIC;
-            // Добавлен четвёртый аргумент CALLBACK_ADMIN_BACK_TO_SECTIONS
-            InlineKeyboardMarkup keyboard = keyboardBuilder.buildTopicsKeyboardForAdmin(
+            BotKeyboard keyboard = keyboardBuilder.buildTopicsKeyboardForAdminBot(
                     result, sectionId, CALLBACK_SELECT_TOPIC_FOR_EDIT, CALLBACK_ADMIN_BACK_TO_SECTIONS);
             editMessage(userId, messageId, text, keyboard);
             sessionService.updateSessionState(userId, BotState.EDIT_SECTION_CHOOSE_TOPIC);
@@ -250,16 +253,13 @@ public class AdminHandler extends BaseHandler {
     public void handleSelectTopicForEdit(Long userId, Integer messageId, Long topicId) {
         UserContext context = sessionService.getCurrentContext(userId);
         context.setEditingTopicId(topicId);
-        // Дополнительно можно сохранить sectionId, если он ещё не установлен
         Topic topic = topicRepository.findById(topicId).orElse(null);
         if (topic != null) {
             context.setEditingSectionId(topic.getSection().getId());
         }
         sessionService.updateSessionContext(userId, context);
 
-        editMessage(userId, messageId,
-                MSG_SEND_JSON_TOPIC,
-                createAdminCancelKeyboardWithBackToTopics());
+        editMessage(userId, messageId, MSG_SEND_JSON_TOPIC, createAdminCancelKeyboardWithBackToTopics());
         sessionService.updateSessionState(userId, BotState.EDIT_TOPIC_JSON);
     }
 
@@ -275,17 +275,33 @@ public class AdminHandler extends BaseHandler {
         sessionService.updateSessionState(userId, BotState.MAIN_MENU);
     }
 
+    // Обработка JSON для Telegram (Message)
     private void handleCourseJson(Long userId, Message message) {
+        try {
+            byte[] fileContent = fileDownloader.downloadFile(message);
+            processCourseJson(userId, fileContent);
+        } catch (Exception e) {
+            log.error("Error processing course JSON", e);
+            sendMessage(userId, MSG_JSON_PARSE_ERROR, createRetryOrCancelKeyboard());
+        }
+    }
+
+    // Обработка JSON для VK (Object)
+    private void handleCourseJson(Long userId, Object fileReference) {
+        try {
+            byte[] fileContent = fileDownloader.downloadFile(fileReference);
+            processCourseJson(userId, fileContent);
+        } catch (Exception e) {
+            log.error("Error processing course JSON", e);
+            sendMessage(userId, MSG_JSON_PARSE_ERROR, createRetryOrCancelKeyboard());
+        }
+    }
+
+    private void processCourseJson(Long userId, byte[] fileContent) {
         Integer progressMessageId = sendProgressMessage(userId);
         try {
-            var document = message.document();
-            String fileId = document.fileId();
-            var file = telegramBot.execute(new GetFile(fileId)).file();
-            byte[] fileContent = telegramBot.getFileContent(file);
             InputStream inputStream = new ByteArrayInputStream(fileContent);
-
             Course course = courseImportService.importCourse(inputStream);
-
             List<PendingImage> pending = courseImportService.collectCourseImages(course.getId());
             if (!pending.isEmpty()) {
                 UserContext context = sessionService.getCurrentContext(userId);
@@ -310,167 +326,143 @@ public class AdminHandler extends BaseHandler {
         }
     }
 
-    public void handleCourseNameDescJson(Long userId, Message message) {
-        var document = message.document();
-        String fileId = document.fileId();
+    // Аналогично для CourseNameDesc, SectionNameDesc, TopicJson
+    private void handleCourseNameDescJson(Long userId, Message message) {
         try {
-            var file = telegramBot.execute(new GetFile(fileId)).file();
-            byte[] fileContent = telegramBot.getFileContent(file);
-            InputStream inputStream = new ByteArrayInputStream(fileContent);
+            byte[] fileContent = fileDownloader.downloadFile(message);
+            processCourseNameDescJson(userId, fileContent);
+        } catch (Exception e) {
+            log.error("Error processing course name/desc JSON", e);
+            sendMessage(userId, MSG_JSON_PARSE_ERROR, createRetryOrCancelKeyboard());
+        }
+    }
 
-            CourseNameDescDto dto = objectMapper.readValue(inputStream, CourseNameDescDto.class);
+    private void handleCourseNameDescJson(Long userId, Object fileReference) {
+        try {
+            byte[] fileContent = fileDownloader.downloadFile(fileReference);
+            processCourseNameDescJson(userId, fileContent);
+        } catch (Exception e) {
+            log.error("Error processing course name/desc JSON", e);
+            sendMessage(userId, MSG_JSON_PARSE_ERROR, createRetryOrCancelKeyboard());
+        }
+    }
 
-            UserContext context = sessionService.getCurrentContext(userId);
-            Long courseId = context.getEditingCourseId();
-            if (courseId == null) {
-                sendMessage(userId, MSG_COURSE_NOT_SELECTED, createBackToMainKeyboard());
-                sessionService.updateSessionState(userId, BotState.MAIN_MENU);
-                return;
-            }
-
-            Course oldCourse = courseRepository.findById(courseId).orElseThrow();
-            String oldTitle = oldCourse.getTitle();
-            String oldDesc = oldCourse.getDescription();
-
-            Course updated = courseImportService.updateCourseNameDesc(courseId, dto.getTitle(), dto.getDescription());
-
-            String response = String.format(
-                    FORMAT_COURSE_UPDATE,
-                    oldTitle, updated.getTitle(), oldDesc, updated.getDescription()
-            );
-            sendMessage(userId, response, createBackToMainKeyboard());
+    private void processCourseNameDescJson(Long userId, byte[] fileContent) throws Exception {
+        InputStream inputStream = new ByteArrayInputStream(fileContent);
+        CourseNameDescDto dto = objectMapper.readValue(inputStream, CourseNameDescDto.class);
+        UserContext context = sessionService.getCurrentContext(userId);
+        Long courseId = context.getEditingCourseId();
+        if (courseId == null) {
+            sendMessage(userId, MSG_COURSE_NOT_SELECTED, createBackToMainKeyboard());
             sessionService.updateSessionState(userId, BotState.MAIN_MENU);
-
-        } catch (Exception e) {
-            log.error("Error updating course name/desc from JSON", e);
-            sendMessage(userId, MSG_JSON_PARSE_ERROR, createRetryOrCancelKeyboard());
+            return;
         }
+        Course oldCourse = courseRepository.findById(courseId).orElseThrow();
+        String oldTitle = oldCourse.getTitle();
+        String oldDesc = oldCourse.getDescription();
+        Course updated = courseImportService.updateCourseNameDesc(courseId, dto.getTitle(), dto.getDescription());
+        String response = String.format(FORMAT_COURSE_UPDATE,
+                oldTitle, updated.getTitle(), oldDesc, updated.getDescription());
+        sendMessage(userId, response, createBackToMainKeyboard());
+        sessionService.updateSessionState(userId, BotState.MAIN_MENU);
     }
 
-    public void handleSectionNameDescJson(Long userId, Message message) {
-        var document = message.document();
-        String fileId = document.fileId();
+    private void handleSectionNameDescJson(Long userId, Message message) {
         try {
-            var file = telegramBot.execute(new GetFile(fileId)).file();
-            byte[] fileContent = telegramBot.getFileContent(file);
-            InputStream inputStream = new ByteArrayInputStream(fileContent);
-
-            SectionNameDescDto dto = objectMapper.readValue(inputStream, SectionNameDescDto.class);
-
-            UserContext context = sessionService.getCurrentContext(userId);
-            Long sectionId = context.getEditingSectionId();
-            if (sectionId == null) {
-                sendMessage(userId, MSG_SECTION_NOT_SELECTED, createBackToMainKeyboard());
-                sessionService.updateSessionState(userId, BotState.MAIN_MENU);
-                return;
-            }
-
-            Section oldSection = sectionRepository.findById(sectionId).orElseThrow();
-            String oldTitle = oldSection.getTitle();
-            String oldDesc = oldSection.getDescription();
-
-            Section updated = courseImportService.updateSectionNameDesc(sectionId, dto.getTitle(), dto.getDescription());
-            Long courseId = updated.getCourse().getId();
-
-            String response = String.format(
-                    FORMAT_SECTION_UPDATE,
-                    oldTitle, updated.getTitle(), oldDesc, updated.getDescription()
-            );
-            sendMessage(userId, response);
-
-            context.setEditingCourseId(courseId);
-            sessionService.updateSessionContext(userId, context);
-
-            var result = navigationService.getSectionsPage(courseId, 0, ADMIN_PAGE_SIZE);
-            String text = MSG_SELECT_SECTION;
-            InlineKeyboardMarkup keyboard = keyboardBuilder.buildSectionsKeyboardForAdmin(
-                    result, courseId, CALLBACK_SELECT_SECTION_FOR_EDIT, CALLBACK_EDIT_COURSE);
-            sendMessage(userId, text, keyboard);
-            sessionService.updateSessionState(userId, BotState.EDIT_COURSE_SECTION_CHOOSE);
-
+            byte[] fileContent = fileDownloader.downloadFile(message);
+            processSectionNameDescJson(userId, fileContent);
         } catch (Exception e) {
-            log.error("Error updating section name/desc from JSON", e);
+            log.error("Error processing section name/desc JSON", e);
             sendMessage(userId, MSG_JSON_PARSE_ERROR, createRetryOrCancelKeyboard());
         }
     }
 
-    public void handleTopicJson(Long userId, Message message) {
+    private void handleSectionNameDescJson(Long userId, Object fileReference) {
+        try {
+            byte[] fileContent = fileDownloader.downloadFile(fileReference);
+            processSectionNameDescJson(userId, fileContent);
+        } catch (Exception e) {
+            log.error("Error processing section name/desc JSON", e);
+            sendMessage(userId, MSG_JSON_PARSE_ERROR, createRetryOrCancelKeyboard());
+        }
+    }
+
+    private void processSectionNameDescJson(Long userId, byte[] fileContent) throws Exception {
+        InputStream inputStream = new ByteArrayInputStream(fileContent);
+        SectionNameDescDto dto = objectMapper.readValue(inputStream, SectionNameDescDto.class);
+        UserContext context = sessionService.getCurrentContext(userId);
+        Long sectionId = context.getEditingSectionId();
+        if (sectionId == null) {
+            sendMessage(userId, MSG_SECTION_NOT_SELECTED, createBackToMainKeyboard());
+            sessionService.updateSessionState(userId, BotState.MAIN_MENU);
+            return;
+        }
+        Section oldSection = sectionRepository.findById(sectionId).orElseThrow();
+        String oldTitle = oldSection.getTitle();
+        String oldDesc = oldSection.getDescription();
+        Section updated = courseImportService.updateSectionNameDesc(sectionId, dto.getTitle(), dto.getDescription());
+        Long courseId = updated.getCourse().getId();
+        String response = String.format(FORMAT_SECTION_UPDATE,
+                oldTitle, updated.getTitle(), oldDesc, updated.getDescription());
+        sendMessage(userId, response);
+        context.setEditingCourseId(courseId);
+        sessionService.updateSessionContext(userId, context);
+        var result = navigationService.getSectionsPage(courseId, 0, ADMIN_PAGE_SIZE);
+        String text = MSG_SELECT_SECTION;
+        BotKeyboard keyboard = keyboardBuilder.buildSectionsKeyboardForAdminBot(
+                result, courseId, CALLBACK_SELECT_SECTION_FOR_EDIT, CALLBACK_EDIT_COURSE);
+        sendMessage(userId, text, keyboard);
+        sessionService.updateSessionState(userId, BotState.EDIT_COURSE_SECTION_CHOOSE);
+    }
+
+    private void handleTopicJson(Long userId, Message message) {
+        try {
+            byte[] fileContent = fileDownloader.downloadFile(message);
+            processTopicJson(userId, fileContent);
+        } catch (Exception e) {
+            log.error("Error processing topic JSON", e);
+            sendJsonErrorWithBackToTopics(userId, MSG_JSON_PARSE_ERROR);
+        }
+    }
+
+    private void handleTopicJson(Long userId, Object fileReference) {
+        try {
+            byte[] fileContent = fileDownloader.downloadFile(fileReference);
+            processTopicJson(userId, fileContent);
+        } catch (Exception e) {
+            log.error("Error processing topic JSON", e);
+            sendJsonErrorWithBackToTopics(userId, MSG_JSON_PARSE_ERROR);
+        }
+    }
+
+    private void processTopicJson(Long userId, byte[] fileContent) throws Exception {
         Integer progressMessageId = sendProgressMessage(userId);
         try {
-            var document = message.document();
-            String fileId = document.fileId();
-            var file = telegramBot.execute(new GetFile(fileId)).file();
-            byte[] fileContent = telegramBot.getFileContent(file);
             InputStream inputStream = new ByteArrayInputStream(fileContent);
-
             TopicImportDto dto = objectMapper.readValue(inputStream, TopicImportDto.class);
             UserContext context = sessionService.getCurrentContext(userId);
             Long topicId = context.getEditingTopicId();
             Topic existingTopic = topicRepository.findById(topicId)
                     .orElseThrow(() -> new RuntimeException("Topic not found"));
-
             Topic updatedTopic = courseImportService.importTopic(dto, existingTopic);
-
             sendMessage(userId, MSG_TOPIC_UPDATED);
             startImageUploadSequence(userId, null, updatedTopic.getId());
-
         } catch (InvalidJsonException e) {
             log.warn("Topic JSON validation error: {}", e.getMessage());
-            if (progressMessageId != null) deleteMessage(userId, progressMessageId);
             sendJsonErrorWithBackToTopics(userId, e.getMessage());
-        } catch (Exception e) {
-            log.error("Error importing topic from JSON", e);
+        } finally {
             if (progressMessageId != null) deleteMessage(userId, progressMessageId);
-            sendJsonErrorWithBackToTopics(userId, MSG_JSON_PARSE_ERROR);
         }
     }
 
     private void handleImageUploadInternal(Long userId, Message message) {
-        if (message.photo() == null || message.photo().length == 0) {
-            sendMessage(userId, MSG_PLEASE_SEND_PHOTO, createRetryOrCancelKeyboard());
-            return;
-        }
-        var photo = message.photo()[message.photo().length - 1];
-        String fileId = photo.fileId();
-
-        UserContext context = sessionService.getCurrentContext(userId);
-        Long entityId = context.getTargetEntityId();
-        String entityType = context.getTargetEntityType();
-
-        try {
-            var file = telegramBot.execute(new GetFile(fileId)).file();
-            byte[] fileContent = telegramBot.getFileContent(file);
-            InputStream inputStream = new ByteArrayInputStream(fileContent);
-
-            String fileName = System.currentTimeMillis() + "_" + fileId + ".jpg";
-            Path targetPath = Paths.get("uploads", fileName);
-            Files.createDirectories(targetPath.getParent());
-            Files.copy(inputStream, targetPath, StandardCopyOption.REPLACE_EXISTING);
-
-            if (ENTITY_BLOCK.equals(entityType)) {
-                BlockImage blockImage = blockImageRepository.findById(entityId).orElseThrow();
-                blockImage.setFilePath(targetPath.toAbsolutePath().toString());
-                blockImageRepository.save(blockImage);
-            } else if (ENTITY_QUESTION.equals(entityType)) {
-                QuestionImage questionImage = questionImageRepository.findById(entityId).orElseThrow();
-                questionImage.setFilePath(targetPath.toAbsolutePath().toString());
-                questionImageRepository.save(questionImage);
-            }
-
-            context.setCurrentImageIndex(context.getCurrentImageIndex() + 1);
-            sessionService.updateSessionContext(userId, context);
-            requestNextImage(userId, message.messageId());
-
-        } catch (Exception e) {
-            log.error("Error saving image", e);
-            sendMessage(userId, MSG_SAVE_IMAGE_ERROR, createRetryOrCancelKeyboard());
-        }
+        // Загрузка изображений через VK пока не поддерживается
+        throw new UnsupportedOperationException("Image upload not implemented for this platform");
     }
 
     private void startImageUploadSequence(Long userId, Integer messageId, Long topicId) {
         List<BlockImage> blockImages = blockImageRepository.findPendingImagesByTopicId(topicId);
         List<QuestionImage> questionImages = questionImageRepository.findPendingImagesByTopicId(topicId);
-
         List<PendingImage> pending = new ArrayList<>();
         for (BlockImage bi : blockImages) {
             pending.add(new PendingImage(ENTITY_BLOCK, bi.getId(), bi.getDescription()));
@@ -478,7 +470,6 @@ public class AdminHandler extends BaseHandler {
         for (QuestionImage qi : questionImages) {
             pending.add(new PendingImage(ENTITY_QUESTION, qi.getId(), qi.getDescription()));
         }
-
         if (pending.isEmpty()) {
             sendMessage(userId, MSG_TOPIC_UPDATED_NO_IMAGES);
             Long sectionId = sessionService.getCurrentContext(userId).getEditingSectionId();
@@ -489,7 +480,6 @@ public class AdminHandler extends BaseHandler {
             }
             return;
         }
-
         UserContext context = sessionService.getCurrentContext(userId);
         context.setPendingImages(pending);
         context.setCurrentImageIndex(0);
@@ -519,17 +509,16 @@ public class AdminHandler extends BaseHandler {
         context.setTargetEntityType(next.getEntityType());
         sessionService.updateSession(userId, BotState.AWAITING_IMAGE, context);
     }
+
     public void showEditCourseSectionsPage(Long userId, Integer messageId, Long courseId, int page) {
         UserContext context = sessionService.getCurrentContext(userId);
         context.setAdminSectionsPage(page);
         sessionService.updateSessionContext(userId, context);
-
         var result = navigationService.getSectionsPage(courseId, page, ADMIN_PAGE_SIZE);
         String courseTitle = navigationService.getCourseTitle(courseId);
         String text = String.format(FORMAT_EDIT_SECTIONS_HEADER,
                 courseTitle, page + 1, result.getTotalPages(), result.getTotalItems());
-        // backCallback указывает на возврат к списку курсов
-        InlineKeyboardMarkup keyboard = keyboardBuilder.buildSectionsKeyboardForAdmin(result, courseId,
+        BotKeyboard keyboard = keyboardBuilder.buildSectionsKeyboardForAdminBot(result, courseId,
                 CALLBACK_SELECT_SECTION_FOR_EDIT, CALLBACK_EDIT_COURSE);
         if (messageId != null) {
             editMessage(userId, messageId, text, keyboard);
@@ -537,17 +526,16 @@ public class AdminHandler extends BaseHandler {
             sendMessage(userId, text, keyboard);
         }
     }
+
     public void showEditTopicsPage(Long userId, Integer messageId, Long sectionId, int page) {
         UserContext context = sessionService.getCurrentContext(userId);
         context.setAdminTopicsPage(page);
         sessionService.updateSessionContext(userId, context);
-
         var result = navigationService.getTopicsPage(sectionId, page, ADMIN_PAGE_SIZE);
         String sectionTitle = navigationService.getSectionTitle(sectionId);
         String text = String.format(FORMAT_EDIT_TOPICS_HEADER,
                 sectionTitle, page + 1, result.getTotalPages(), result.getTotalItems());
-        // backCallback ведёт на admin_back_to_sections
-        InlineKeyboardMarkup keyboard = keyboardBuilder.buildTopicsKeyboardForAdmin(result, sectionId,
+        BotKeyboard keyboard = keyboardBuilder.buildTopicsKeyboardForAdminBot(result, sectionId,
                 CALLBACK_SELECT_TOPIC_FOR_EDIT, CALLBACK_ADMIN_BACK_TO_SECTIONS);
         if (messageId != null) {
             editMessage(userId, messageId, text, keyboard);
@@ -556,14 +544,10 @@ public class AdminHandler extends BaseHandler {
         }
     }
 
-    // ================== Вспомогательные клавиатуры и сообщения ==================
-
     public void handleBackToCoursesFromEdit(Long userId, Integer messageId) {
         UserContext context = sessionService.getCurrentContext(userId);
         Long editingCourseId = context.getEditingCourseId();
         if (editingCourseId != null) {
-            // возвращаемся к редактированию разделов этого курса?
-            // по логике текущего кода – показываем список курсов для редактирования
             showEditCoursesPage(userId, messageId, 0);
         } else {
             sendMainMenu(userId, messageId);
@@ -593,6 +577,7 @@ public class AdminHandler extends BaseHandler {
             sendMainMenu(userId, messageId);
         }
     }
+
     public boolean isAdmin(Long userId) {
         return adminUserRepository.existsByUserId(userId);
     }
@@ -624,18 +609,13 @@ public class AdminHandler extends BaseHandler {
             }
         }
         Integer page = context.getAdminTopicsPage();
-
         if (sectionId == null) {
-            // Если не удалось определить раздел – отправляем в главное меню
             sendMessage(userId, errorMessage, createBackToMainKeyboard());
             return;
         }
-
         String backCallback = CALLBACK_ADMIN_BACK_TO_TOPICS + ":" + sectionId + ":" + page;
-        InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup(
-                new InlineKeyboardButton[]{new InlineKeyboardButton(BUTTON_RETRY).callbackData(CALLBACK_RETRY)},
-                new InlineKeyboardButton[]{new InlineKeyboardButton(BUTTON_CANCEL).callbackData(backCallback)}
-        );
+        BotKeyboard keyboard = new BotKeyboard().addRow(BotButton.callback(BUTTON_RETRY, CALLBACK_RETRY))
+                .addRow(BotButton.callback(BUTTON_CANCEL, backCallback));
         sendMessage(userId, errorMessage, keyboard);
     }
 }

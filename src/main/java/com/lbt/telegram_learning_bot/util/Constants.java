@@ -225,6 +225,36 @@ public final class Constants {
     public static final String CALLBACK_SETTINGS_NOTIFICATIONS = "settings_notifications";
     public static final String CALLBACK_SETTINGS_RESET = "settings_reset";
     public static final int ADMIN_PAGE_SIZE = 5;
+
+    // ========== Привязка аккаунтов ==========
+    public static final String CALLBACK_LINK_GENERATE        = "link_generate";
+    public static final String CALLBACK_LINK_RESOLVE_KEEP_THIS  = "link_keep_this";
+    public static final String CALLBACK_LINK_RESOLVE_KEEP_OTHER = "link_keep_other";
+
+    public static final String MSG_LINK_CODE_GENERATED =
+            "🔗 Ваш код для привязки аккаунта: *%s*\n\n" +
+            "Откройте бот в другой соц. сети и введите:\n`/link %s`\n\n" +
+            "Код действителен %d минут.";
+    public static final String MSG_LINK_INVALID_CODE =
+            "❌ Код не найден или истёк. Попробуйте сгенерировать новый командой /link";
+    public static final String MSG_LINK_SAME_PLATFORM =
+            "❌ Нельзя привязать аккаунты одной и той же платформы.";
+    public static final String MSG_LINK_ALREADY_LINKED =
+            "✅ Эти аккаунты уже связаны!";
+    public static final String MSG_LINK_ALREADY_ELSEWHERE =
+            "❌ Ваш аккаунт уже привязан к другому пользователю.";
+    public static final String MSG_LINK_SUCCESS =
+            "✅ Аккаунты успешно объединены! Прогресс синхронизирован.";
+    public static final String MSG_LINK_CONFLICT =
+            "⚠️ У вас есть прогресс в обоих аккаунтах.\n\n" +
+            "Выберите, *чей прогресс сохранить* (второй будет удалён):";
+    public static final String MSG_LINK_STATUS_LINKED =
+            "🔗 Аккаунты привязаны: %s";
+    public static final String MSG_LINK_STATUS_NOT_LINKED =
+            "🔓 Другие платформы не привязаны. Используйте /link для связывания.";
+    public static final String BUTTON_KEEP_THIS_PROGRESS  = "Оставить прогресс этого аккаунта";
+    public static final String BUTTON_KEEP_OTHER_PROGRESS = "Оставить прогресс другого аккаунта";
+
     // ========== Дополнительные форматы ==========
     public static final String FORMAT_STUDY_TIME_HOURS = "%d ч %d мин";
     public static final String FORMAT_STUDY_TIME_MINUTES = "%d мин";

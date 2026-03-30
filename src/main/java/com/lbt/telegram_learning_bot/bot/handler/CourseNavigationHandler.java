@@ -3,13 +3,14 @@ package com.lbt.telegram_learning_bot.bot.handler;
 import com.lbt.telegram_learning_bot.bot.BotState;
 import com.lbt.telegram_learning_bot.bot.UserContext;
 import com.lbt.telegram_learning_bot.entity.*;
+import com.lbt.telegram_learning_bot.platform.MessageSender;
 import com.lbt.telegram_learning_bot.repository.*;
 import com.lbt.telegram_learning_bot.service.NavigationService;
 import com.lbt.telegram_learning_bot.service.UserSessionService;
 import com.lbt.telegram_learning_bot.service.UserSettingsService;
 import com.pengrad.telegrambot.TelegramBot;
-import com.pengrad.telegrambot.model.request.InlineKeyboardButton;
-import com.pengrad.telegrambot.model.request.InlineKeyboardMarkup;
+
+
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -17,25 +18,28 @@ import java.time.Instant;
 import java.util.List;
 
 import static com.lbt.telegram_learning_bot.util.Constants.*;
+import com.lbt.telegram_learning_bot.platform.BotButton;
+import com.lbt.telegram_learning_bot.platform.BotKeyboard;
 
 @Slf4j
-@Component
 public class CourseNavigationHandler extends BaseHandler {
     private final KeyboardBuilder keyboardBuilder;
 
-    public CourseNavigationHandler(TelegramBot telegramBot,
+    public CourseNavigationHandler(MessageSender messageSender,
                                    UserSessionService sessionService,
                                    NavigationService navigationService,
-                                   AdminUserRepository adminUserRepository, // добавить
+                                   AdminUserRepository adminUserRepository,
                                    KeyboardBuilder keyboardBuilder,
                                    UserSettingsService userSettingsService) {
-        super(telegramBot, sessionService, navigationService, adminUserRepository, userSettingsService);
+        super(messageSender, sessionService, navigationService, adminUserRepository, userSettingsService);
         this.keyboardBuilder = keyboardBuilder;
     }
 
     // ================== Публичные методы для диспетчера ==================
     public void handleMyCourses(Long userId, Integer messageId, int page) {
+        log.info("handleMyCourses called: userId={}, messageId={}, page={}", userId, messageId, page);
         int pageSize = userSettingsService.getSettings(userId).getPageSize();
+        log.info("pageSize={}", pageSize);
         showMyCourses(userId, messageId, page, pageSize);
     }
 
@@ -53,9 +57,7 @@ public class CourseNavigationHandler extends BaseHandler {
         if (blocks.isEmpty()) {
             // Вместо главного меню покажем клавиатуру с возвратом к списку тем
             String text = MSG_TOPIC_NO_BLOCKS;
-            InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup(
-                    new InlineKeyboardButton[]{new InlineKeyboardButton(BUTTON_BACK).callbackData(CALLBACK_BACK_TO_TOPICS)}
-            );
+            BotKeyboard keyboard = new BotKeyboard().addRow(BotButton.callback(BUTTON_BACK, CALLBACK_BACK_TO_TOPICS));
             if (messageId != null) {
                 editMessage(userId, messageId, text, keyboard);
             } else {
@@ -102,8 +104,7 @@ public class CourseNavigationHandler extends BaseHandler {
             String stats = String.format(FORMAT_TOPIC_COMPLETED,
                     correct, wrong, total);
 
-            InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup(
-                    new InlineKeyboardButton(BUTTON_BACK).callbackData(CALLBACK_BACK_TO_TOPICS)
+            BotKeyboard keyboard = new BotKeyboard().addRow(BotButton.callback(BUTTON_BACK, CALLBACK_BACK_TO_TOPICS)
             );
 
             if (messageId != null) {
@@ -166,7 +167,7 @@ public class CourseNavigationHandler extends BaseHandler {
                 var result = navigationService.getFoundCoursesPage(query, page, pageSize);
                 String text = String.format(FORMAT_SEARCH_RESULTS,
                         query, page + 1, result.getTotalPages(), result.getTotalItems());
-                InlineKeyboardMarkup keyboard = keyboardBuilder.buildCoursesKeyboard(result, userId, SOURCE_SEARCH, CALLBACK_SELECT_COURSE, true);
+                BotKeyboard keyboard = keyboardBuilder.buildCoursesKeyboardBot(result, userId, SOURCE_SEARCH, CALLBACK_SELECT_COURSE, true);
                 editMessage(userId, messageId, text, keyboard);
                 break;
             default:
@@ -210,7 +211,7 @@ public class CourseNavigationHandler extends BaseHandler {
             String query = context.getSearchQuery();
             var result = navigationService.getFoundCoursesPage(query, page, pageSize);
             String text = "Результаты поиска (страница " + (page + 1) + "):";
-            InlineKeyboardMarkup keyboard = keyboardBuilder.buildCoursesKeyboard(result, userId, SOURCE_SEARCH, CALLBACK_SELECT_COURSE, true);
+            BotKeyboard keyboard = keyboardBuilder.buildCoursesKeyboardBot(result, userId, SOURCE_SEARCH, CALLBACK_SELECT_COURSE, true);
             editMessage(userId, messageId, text, keyboard);
             sessionService.updateSessionState(userId, BotState.SEARCH_COURSES);
         } else {
@@ -285,15 +286,16 @@ public class CourseNavigationHandler extends BaseHandler {
         }
         String text = String.format("🔍 Результаты поиска по запросу «%s» (страница 1 из %d) – найдено %d курсов.",
                 query, result.getTotalPages(), result.getTotalItems());
-        InlineKeyboardMarkup keyboard = keyboardBuilder.buildCoursesKeyboard(result, userId, SOURCE_SEARCH, CALLBACK_SELECT_COURSE, true);
+        BotKeyboard keyboard = keyboardBuilder.buildCoursesKeyboardBot(result, userId, SOURCE_SEARCH, CALLBACK_SELECT_COURSE, true);
         sendMessage(userId, text, keyboard);
         sessionService.updateSessionState(userId, BotState.SEARCH_COURSES);
     }
 
     // ================== Внутренние методы навигации ==================
     private void showMyCourses(Long userId, Integer messageId, int page, int pageSize) {
+        log.info("showMyCourses: userId={}, messageId={}, page={}, pageSize={}", userId, messageId, page, pageSize);
         var result = navigationService.getMyCoursesPage(userId, page, pageSize);
-        if (result.getItems().isEmpty()) {
+        log.info("result: items={}, totalPages={}, totalItems={}", result.getItems().size(), result.getTotalPages(), result.getTotalItems());if (result.getItems().isEmpty()) {
             String text = MSG_NO_MY_COURSES;
             if (messageId != null) {
                 editMessage(userId, messageId, text, createBackToMainKeyboard());
@@ -304,7 +306,7 @@ public class CourseNavigationHandler extends BaseHandler {
         }
         String text = String.format(FORMAT_MY_COURSES_HEADER,
                 page + 1, result.getTotalPages(), result.getTotalItems());
-        InlineKeyboardMarkup keyboard = keyboardBuilder.buildCoursesKeyboard(result, userId, CALLBACK_MY_COURSES, CALLBACK_SELECT_COURSE, true);
+        BotKeyboard keyboard = keyboardBuilder.buildCoursesKeyboardBot(result, userId, CALLBACK_MY_COURSES, CALLBACK_SELECT_COURSE, true);
         if (messageId != null) {
             editMessage(userId, messageId, text, keyboard);
         } else {
@@ -325,7 +327,7 @@ public class CourseNavigationHandler extends BaseHandler {
         }
         String text = String.format(FORMAT_ALL_COURSES_HEADER,
                 page + 1, result.getTotalPages(), result.getTotalItems());
-        InlineKeyboardMarkup keyboard = keyboardBuilder.buildCoursesKeyboard(result, userId, CALLBACK_ALL_COURSES, CALLBACK_SELECT_COURSE, true);
+        BotKeyboard keyboard = keyboardBuilder.buildCoursesKeyboardBot(result, userId, CALLBACK_ALL_COURSES, CALLBACK_SELECT_COURSE, true);
         if (messageId != null) {
             editMessage(userId, messageId, text, keyboard);
         } else {
@@ -342,18 +344,18 @@ public class CourseNavigationHandler extends BaseHandler {
         if (messageId != null && page == 0) {
             String text = String.format(FORMAT_COURSE_SECTIONS_HEADER,
                     courseTitle, courseDescription, lastAccessedStr, page + 1, result.getTotalPages(), result.getTotalItems());
-            InlineKeyboardMarkup keyboard = keyboardBuilder.buildSectionsKeyboard(result, userId, courseId, true, CALLBACK_SELECT_SECTION);
+            BotKeyboard keyboard = keyboardBuilder.buildSectionsKeyboardBot(result, userId, courseId, true, CALLBACK_SELECT_SECTION);
             editMessage(userId, messageId, text, keyboard);
         } else if (messageId != null) {
             String text = String.format(FORMAT_SECTIONS_HEADER,
                     courseTitle, page + 1, result.getTotalPages(), result.getTotalItems(), lastAccessedStr);
-            InlineKeyboardMarkup keyboard = keyboardBuilder.buildSectionsKeyboard(result, userId, courseId, true, CALLBACK_SELECT_SECTION);
+            BotKeyboard keyboard = keyboardBuilder.buildSectionsKeyboardBot(result, userId, courseId, true, CALLBACK_SELECT_SECTION);
             editMessage(userId, messageId, text, keyboard);
         } else {
             sendMessage(userId, String.format(FORMAT_COURSE_HEADER, courseTitle, courseDescription, lastAccessedStr));
             String text = String.format("📌 **Разделы** курса «%s» (страница %d из %d) – всего %d разделов.\nВыберите раздел.",
                     courseTitle, page + 1, result.getTotalPages(), result.getTotalItems());
-            InlineKeyboardMarkup keyboard = keyboardBuilder.buildSectionsKeyboard(result, userId, courseId, true, CALLBACK_SELECT_SECTION);
+            BotKeyboard keyboard = keyboardBuilder.buildSectionsKeyboardBot(result, userId, courseId, true, CALLBACK_SELECT_SECTION);
             sendMessage(userId, text, keyboard);
         }
     }
@@ -369,19 +371,19 @@ public class CourseNavigationHandler extends BaseHandler {
         if (messageId != null && page == 0) {
             String text = String.format(FORMAT_TOPICS_HEADER,
                     sectionTitle, sectionDescription, lastAccessedStr, page + 1, result.getTotalPages(), result.getTotalItems());
-            InlineKeyboardMarkup keyboard = keyboardBuilder.buildTopicsKeyboard(result, userId, sectionId, true, CALLBACK_SELECT_TOPIC);
+            BotKeyboard keyboard = keyboardBuilder.buildTopicsKeyboardBot(result, userId, sectionId, true, CALLBACK_SELECT_TOPIC);
             editMessage(userId, messageId, text, keyboard);
             navigationService.updateSectionLastAccessed(userId, sectionId);
         } else if (messageId != null) {
             String text = String.format(FORMAT_TOPICS_HEADER2,
                     sectionTitle, page + 1, result.getTotalPages(), result.getTotalItems(), lastAccessedStr);
-            InlineKeyboardMarkup keyboard = keyboardBuilder.buildTopicsKeyboard(result, userId, sectionId, true, CALLBACK_SELECT_TOPIC);
+            BotKeyboard keyboard = keyboardBuilder.buildTopicsKeyboardBot(result, userId, sectionId, true, CALLBACK_SELECT_TOPIC);
             editMessage(userId, messageId, text, keyboard);
         } else {
             sendMessage(userId, String.format(FORMAT_SECTION_HEADER, sectionTitle, sectionDescription, lastAccessedStr));
             String text = String.format("📌 **Темы** раздела «%s» (страница %d из %d) – всего %d тем.\nВыберите тему.",
                     sectionTitle, page + 1, result.getTotalPages(), result.getTotalItems());
-            InlineKeyboardMarkup keyboard = keyboardBuilder.buildTopicsKeyboard(result, userId, sectionId, true, CALLBACK_SELECT_TOPIC);
+            BotKeyboard keyboard = keyboardBuilder.buildTopicsKeyboardBot(result, userId, sectionId, true, CALLBACK_SELECT_TOPIC);
             sendMessage(userId, text, keyboard);
             if (page == 0) {
                 navigationService.updateSectionLastAccessed(userId, sectionId);
@@ -393,7 +395,7 @@ public class CourseNavigationHandler extends BaseHandler {
         UserContext context = sessionService.getCurrentContext(userId); // добавить
         navigationService.getBlockWithImages(blockId).ifPresentOrElse(block -> {
             String text = block.getTextContent();
-            InlineKeyboardMarkup keyboard = keyboardBuilder.buildBlockNavigationKeyboard(context);
+            BotKeyboard keyboard = keyboardBuilder.buildBlockNavigationKeyboardBot(context);
             if (messageId != null) {
                 editMessage(userId, messageId, text, keyboard);
             } else {

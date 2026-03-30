@@ -1,14 +1,19 @@
 package com.lbt.telegram_learning_bot.bot;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lbt.telegram_learning_bot.bot.handler.*;
-import com.lbt.telegram_learning_bot.repository.AdminUserRepository;
+import com.lbt.telegram_learning_bot.platform.MessageSender;
+import com.lbt.telegram_learning_bot.platform.Platform;
+import com.lbt.telegram_learning_bot.repository.*;
+import com.lbt.telegram_learning_bot.service.PlatformUserService;
 import com.lbt.telegram_learning_bot.service.*;
+import com.lbt.telegram_learning_bot.telegram.TelegramMessageSender;
 import com.pengrad.telegrambot.TelegramBot;
 import com.pengrad.telegrambot.model.CallbackQuery;
 import com.pengrad.telegrambot.model.Message;
 import com.pengrad.telegrambot.model.Update;
-import com.pengrad.telegrambot.model.request.InlineKeyboardButton;
-import com.pengrad.telegrambot.model.request.InlineKeyboardMarkup;
+
+
 import com.pengrad.telegrambot.request.AnswerCallbackQuery;
 import com.pengrad.telegrambot.request.GetChat;
 import com.pengrad.telegrambot.request.SendDocument;
@@ -22,17 +27,39 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 import static com.lbt.telegram_learning_bot.util.Constants.*;
+import com.lbt.telegram_learning_bot.platform.BotButton;
+import com.lbt.telegram_learning_bot.platform.BotKeyboard;
+import com.lbt.telegram_learning_bot.telegram.TelegramFileDownloader;
 
 @Slf4j
 @Component
 public class TelegramBotHandler extends BaseHandler {
 
     private final PdfExportService pdfExportService;
+    private final PlatformUserService platformUserService;
+    private final LinkHandler linkHandler;
     private final CourseNavigationHandler courseNavHandler;
     private final TestHandler testHandler;
     private final AdminHandler adminHandler;
     private final RateLimiterService rateLimiterService;
     private final SettingsHandler settingsHandler;
+    // поля
+    private final TelegramBot telegramBot;
+    private final KeyboardBuilder keyboardBuilder;
+    private final QuestionRepository questionRepository;
+    private final AnswerOptionRepository answerOptionRepository;
+    private final UserProgressRepository userProgressRepository;
+    private final UserMistakeRepository userMistakeRepository;
+    private final UserTestResultRepository userTestResultRepository;
+    private final CourseImportService courseImportService;
+    private final CourseRepository courseRepository;
+    private final SectionRepository sectionRepository;
+    private final TopicRepository topicRepository;
+    private final BlockRepository blockRepository;
+    private final BlockImageRepository blockImageRepository;
+    private final QuestionImageRepository questionImageRepository;
+    private final ObjectMapper objectMapper;
+    private final UserProgressCleanupService progressCleanupService;
     @Value("${message.max-length:2000}")
     private int maxMessageLength;
 
@@ -47,18 +74,52 @@ public class TelegramBotHandler extends BaseHandler {
                               AdminUserRepository adminUserRepository,
                               UserSettingsService userSettingsService,
                               PdfExportService pdfExportService,
-                              CourseNavigationHandler courseNavHandler,
                               RateLimiterService rateLimiterService,
-                              TestHandler testHandler,
-                              AdminHandler adminHandler,
-                              SettingsHandler settingsHandler) {
-        super(telegramBot, sessionService, navigationService, adminUserRepository, userSettingsService);
+                              PlatformUserService platformUserService,
+                              LinkHandler linkHandler,
+                              KeyboardBuilder keyboardBuilder,
+                              QuestionRepository questionRepository,
+                              AnswerOptionRepository answerOptionRepository,
+                              UserProgressRepository userProgressRepository,
+                              UserMistakeRepository userMistakeRepository,
+                              UserTestResultRepository userTestResultRepository,
+                              CourseImportService courseImportService,
+                              CourseRepository courseRepository,
+                              SectionRepository sectionRepository,
+                              TopicRepository topicRepository,
+                              BlockRepository blockRepository,
+                              BlockImageRepository blockImageRepository,
+                              QuestionImageRepository questionImageRepository,
+                              ObjectMapper objectMapper,
+                              UserProgressCleanupService progressCleanupService) {
+        super(new TelegramMessageSender(telegramBot), sessionService, navigationService, adminUserRepository, userSettingsService);
+        this.telegramBot = telegramBot;
         this.pdfExportService = pdfExportService;
-        this.courseNavHandler = courseNavHandler;
-        this.testHandler = testHandler;
-        this.adminHandler = adminHandler;
         this.rateLimiterService = rateLimiterService;
-        this.settingsHandler = settingsHandler;
+        this.platformUserService = platformUserService;
+        this.linkHandler = linkHandler;
+        this.keyboardBuilder = keyboardBuilder;
+        this.questionRepository = questionRepository;
+        this.answerOptionRepository = answerOptionRepository;
+        this.userProgressRepository = userProgressRepository;
+        this.userMistakeRepository = userMistakeRepository;
+        this.userTestResultRepository = userTestResultRepository;
+        this.courseImportService = courseImportService;
+        this.courseRepository = courseRepository;
+        this.sectionRepository = sectionRepository;
+        this.topicRepository = topicRepository;
+        this.blockRepository = blockRepository;
+        this.blockImageRepository = blockImageRepository;
+        this.questionImageRepository = questionImageRepository;
+        this.objectMapper = objectMapper;
+        this.progressCleanupService = progressCleanupService;
+
+        // Создаём хендлеры
+        MessageSender tgSender = new TelegramMessageSender(telegramBot);
+        this.courseNavHandler = new CourseNavigationHandler(tgSender, sessionService, navigationService, adminUserRepository, keyboardBuilder, userSettingsService);
+        this.testHandler = new TestHandler(tgSender, sessionService, navigationService, questionRepository, adminUserRepository, answerOptionRepository, userProgressRepository, userMistakeRepository, userTestResultRepository, courseNavHandler, userSettingsService);
+        this.adminHandler = new AdminHandler(tgSender, new TelegramFileDownloader(telegramBot), sessionService, navigationService, courseImportService, courseRepository, keyboardBuilder, sectionRepository, topicRepository, blockRepository, questionRepository, answerOptionRepository, blockImageRepository, questionImageRepository, adminUserRepository, userProgressRepository, objectMapper, userSettingsService);
+        this.settingsHandler = new SettingsHandler(tgSender, sessionService, navigationService, adminUserRepository, userSettingsService, progressCleanupService);
     }
 
     private boolean isAdminState(BotState state) {
@@ -80,9 +141,10 @@ public class TelegramBotHandler extends BaseHandler {
     }
 
     private void handleMessage(Message message) {
-        Long userId = message.from().id();
+        Long externalUserId = message.from().id();
+        // Резолвим единый внутренний ID (для синхронизации с VK)
+        Long userId = platformUserService.resolveUserId(Platform.TELEGRAM, externalUserId);
 
-        // Rate limiting проверка
         if (!rateLimiterService.isAllowed(userId)) {
             sendMessage(userId, TOO_MANY_REQUEST);
             return;
@@ -91,7 +153,6 @@ public class TelegramBotHandler extends BaseHandler {
         String text = message.text();
         String firstName = message.from().firstName();
 
-        // Проверка длины текста
         if (text != null && text.length() > maxMessageLength) {
             sendMessage(userId, "⚠️ Сообщение слишком длинное. Пожалуйста, сократите до " + maxMessageLength + " символов.");
             return;
@@ -118,11 +179,29 @@ public class TelegramBotHandler extends BaseHandler {
             return;
         }
 
+        // Команда привязки аккаунтов
+        if (text.startsWith("/link")) {
+            String[] parts = text.split("\s+", 2);
+            if (parts.length == 2 && !parts[1].isBlank()) {
+                linkHandler.applyCode(userId, parts[1], Platform.TELEGRAM, externalUserId,
+                        new com.lbt.telegram_learning_bot.telegram.TelegramMessageSenderAdapter(telegramBot, sessionService, userId));
+            } else {
+                linkHandler.generateCode(userId, Platform.TELEGRAM,
+                        new com.lbt.telegram_learning_bot.telegram.TelegramMessageSenderAdapter(telegramBot, sessionService, userId));
+            }
+            return;
+        }
+
         switch (currentState) {
             case MAIN_MENU:
                 break;
             case AWAITING_SEARCH_QUERY:
                 courseNavHandler.handleSearchQuery(userId, text);
+                break;
+            case AWAITING_LINK_CODE:
+                linkHandler.applyCode(userId, text, Platform.TELEGRAM, externalUserId,
+                        new com.lbt.telegram_learning_bot.telegram.TelegramMessageSenderAdapter(telegramBot, sessionService, userId));
+                sessionService.updateSessionState(userId, BotState.MAIN_MENU);
                 break;
             default:
                 sendMainMenu(userId, message.messageId());
@@ -131,7 +210,8 @@ public class TelegramBotHandler extends BaseHandler {
     }
 
     private void handleCallback(CallbackQuery callbackQuery) {
-        Long userId = callbackQuery.from().id();
+        Long externalUserId = callbackQuery.from().id();
+        Long userId = platformUserService.resolveUserId(Platform.TELEGRAM, externalUserId);
 
         if (!rateLimiterService.isAllowed(userId)) {
             try {
@@ -357,6 +437,22 @@ public class TelegramBotHandler extends BaseHandler {
             case CALLBACK_SETTINGS_RESET_CONFIRM:
                 settingsHandler.resetProgress(userId, messageId);
                 break;
+            case CALLBACK_LINK_GENERATE:
+                linkHandler.generateCode(userId, Platform.TELEGRAM,
+                        new com.lbt.telegram_learning_bot.telegram.TelegramMessageSenderAdapter(telegramBot, sessionService, userId));
+                break;
+            case CALLBACK_LINK_RESOLVE_KEEP_THIS:
+                if (parts.length >= 2) {
+                    linkHandler.resolveConflictKeepThis(userId, parts[1], Platform.TELEGRAM, externalUserId,
+                            new com.lbt.telegram_learning_bot.telegram.TelegramMessageSenderAdapter(telegramBot, sessionService, userId));
+                }
+                break;
+            case CALLBACK_LINK_RESOLVE_KEEP_OTHER:
+                if (parts.length >= 2) {
+                    linkHandler.resolveConflictKeepOther(userId, parts[1], Platform.TELEGRAM, externalUserId,
+                            new com.lbt.telegram_learning_bot.telegram.TelegramMessageSenderAdapter(telegramBot, sessionService, userId));
+                }
+                break;
             default:
                 log.warn("Unknown callback action: {}", action);
         }
@@ -438,15 +534,11 @@ public class TelegramBotHandler extends BaseHandler {
                     userName,
                     LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH-mm")));
 
-            InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup(
-                    new InlineKeyboardButton(BUTTON_BACK).callbackData(CALLBACK_STATISTICS_BACK)
-            );
+            BotKeyboard keyboard = new BotKeyboard().addRow(BotButton.callback(BUTTON_BACK, CALLBACK_STATISTICS_BACK));
 
-            SendDocument request = new SendDocument(userId, pdfBytes)
-                    .fileName(fileName)
-                    .caption(STATS_PDF_CAPTION)
-                    .replyMarkup(keyboard);
-            telegramBot.execute(request);
+            
+        messageSender.sendDocument(userId, pdfBytes, fileName, STATS_PDF_CAPTION, keyboard);
+
 
             if (messageId != null) {
                 deleteMessage(userId, messageId);

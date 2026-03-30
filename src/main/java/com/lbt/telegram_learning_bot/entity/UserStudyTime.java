@@ -8,6 +8,8 @@ import lombok.Setter;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.Instant;
+import com.lbt.telegram_learning_bot.platform.BotButton;
+import com.lbt.telegram_learning_bot.platform.BotKeyboard;
 
 @Entity
 @Table(name = "user_study_time", uniqueConstraints = @UniqueConstraint(columnNames = {"user_id", "topic_id"}))

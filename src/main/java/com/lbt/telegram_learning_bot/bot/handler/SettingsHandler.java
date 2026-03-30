@@ -3,46 +3,49 @@ package com.lbt.telegram_learning_bot.bot.handler;
 import com.lbt.telegram_learning_bot.bot.BotState;
 import com.lbt.telegram_learning_bot.bot.UserContext;
 import com.lbt.telegram_learning_bot.entity.UserSettings;
+import com.lbt.telegram_learning_bot.platform.MessageSender;
 import com.lbt.telegram_learning_bot.repository.AdminUserRepository;
 import com.lbt.telegram_learning_bot.service.NavigationService;
 import com.lbt.telegram_learning_bot.service.UserProgressCleanupService;
 import com.lbt.telegram_learning_bot.service.UserSessionService;
 import com.lbt.telegram_learning_bot.service.UserSettingsService;
 import com.pengrad.telegrambot.TelegramBot;
-import com.pengrad.telegrambot.model.request.InlineKeyboardButton;
-import com.pengrad.telegrambot.model.request.InlineKeyboardMarkup;
+
+
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import static com.lbt.telegram_learning_bot.util.Constants.*;
 
+import com.lbt.telegram_learning_bot.platform.BotButton;
+import com.lbt.telegram_learning_bot.platform.BotKeyboard;
+
 @Slf4j
-@Component
 public class SettingsHandler extends BaseHandler {
 
     private final UserProgressCleanupService progressCleanupService;
 
-    public SettingsHandler(TelegramBot telegramBot,
+    public SettingsHandler(MessageSender messageSender,
                            UserSessionService sessionService,
                            NavigationService navigationService,
                            AdminUserRepository adminUserRepository,
                            UserSettingsService userSettingsService,
                            UserProgressCleanupService progressCleanupService) {
-        super(telegramBot, sessionService, navigationService, adminUserRepository, userSettingsService);
+        super(messageSender, sessionService, navigationService, adminUserRepository, userSettingsService);
         this.progressCleanupService = progressCleanupService;
     }
 
     public void showSettingsMenu(Long userId, Integer messageId) {
         UserSettings settings = userSettingsService.getSettings(userId);
         String text = String.format("""
-                ⚙️ **Настройки**
-
-                🔀 Перемешивать варианты: %s
-                📄 Размер страницы: %d
-                ❓ Вопросов в тесте (на блок): %d
-                💬 Показывать пояснения: %s
-                🔔 Уведомления о новых курсах: %s
-                """,
+                        ⚙️ **Настройки**
+                        
+                        🔀 Перемешивать варианты: %s
+                        📄 Размер страницы: %d
+                        ❓ Вопросов в тесте (на блок): %d
+                        💬 Показывать пояснения: %s
+                        🔔 Уведомления о новых курсах: %s
+                        """,
                 settings.getShuffleOptions() ? "✅" : "❌",
                 settings.getPageSize(),
                 settings.getTestQuestionsPerBlock(),
@@ -50,18 +53,19 @@ public class SettingsHandler extends BaseHandler {
                 settings.getNotificationsEnabled() ? "✅" : "❌"
         );
 
-        InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup(
-                new InlineKeyboardButton("🔀 Перемешивание").callbackData(CALLBACK_SETTINGS_SHUFFLE),
-                new InlineKeyboardButton("📄 Размер страницы").callbackData(CALLBACK_SETTINGS_PAGESIZE)
-        ).addRow(
-                new InlineKeyboardButton("❓ Кол-во вопросов").callbackData(CALLBACK_SETTINGS_QUESTIONS),
-                new InlineKeyboardButton("💬 Пояснения").callbackData(CALLBACK_SETTINGS_EXPLANATIONS)
-        ).addRow(
-                new InlineKeyboardButton("🔔 Уведомления").callbackData(CALLBACK_SETTINGS_NOTIFICATIONS),
-                new InlineKeyboardButton("🗑️ Сброс прогресса").callbackData(CALLBACK_SETTINGS_RESET)
-        ).addRow(
-                new InlineKeyboardButton(BUTTON_MAIN_MENU).callbackData(CALLBACK_MAIN_MENU)
-        );
+        BotKeyboard keyboard = new BotKeyboard().addRow(BotButton.callback("🔀 Перемешивание", CALLBACK_SETTINGS_SHUFFLE),
+                        BotButton.callback("📄 Размер страницы", CALLBACK_SETTINGS_PAGESIZE)
+                ).addRow(
+                        BotButton.callback("❓ Кол-во вопросов", CALLBACK_SETTINGS_QUESTIONS),
+                        BotButton.callback("💬 Пояснения", CALLBACK_SETTINGS_EXPLANATIONS)
+                ).addRow(
+                        BotButton.callback("🔔 Уведомления", CALLBACK_SETTINGS_NOTIFICATIONS),
+                        BotButton.callback("🗑️ Сброс прогресса", CALLBACK_SETTINGS_RESET)
+                ).addRow(
+                        BotButton.callback("🔗 Привязать аккаунт", CALLBACK_LINK_GENERATE)
+                ).addRow(
+                        BotButton.callback(BUTTON_MAIN_MENU, CALLBACK_MAIN_MENU)
+                );
 
         if (messageId != null) {
             editMessage(userId, messageId, text, keyboard);
@@ -90,12 +94,11 @@ public class SettingsHandler extends BaseHandler {
 
     public void showPageSizeOptions(Long userId, Integer messageId) {
         String text = "Выберите количество элементов на странице:";
-        InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup(
-                new InlineKeyboardButton("5").callbackData(CALLBACK_SETTINGS_PAGESIZE_SET + ":5"),
-                new InlineKeyboardButton("10").callbackData(CALLBACK_SETTINGS_PAGESIZE_SET + ":10"),
-                new InlineKeyboardButton("15").callbackData(CALLBACK_SETTINGS_PAGESIZE_SET + ":15")
+        BotKeyboard keyboard = new BotKeyboard().addRow(BotButton.callback("5", CALLBACK_SETTINGS_PAGESIZE_SET + ":5"),
+                BotButton.callback("10", CALLBACK_SETTINGS_PAGESIZE_SET + ":10"),
+                BotButton.callback("15", CALLBACK_SETTINGS_PAGESIZE_SET + ":15")
         ).addRow(
-                new InlineKeyboardButton("🔙 Назад").callbackData(CALLBACK_SETTINGS)
+                BotButton.callback("🔙 Назад", CALLBACK_SETTINGS)
         );
         editMessage(userId, messageId, text, keyboard);
     }
@@ -107,13 +110,12 @@ public class SettingsHandler extends BaseHandler {
 
     public void showQuestionsPerBlockOptions(Long userId, Integer messageId) {
         String text = "Выберите количество вопросов на блок в тестах раздела/курса:";
-        InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup(
-                new InlineKeyboardButton("1").callbackData(CALLBACK_SETTINGS_QUESTIONS_SET + ":1"),
-                new InlineKeyboardButton("2").callbackData(CALLBACK_SETTINGS_QUESTIONS_SET + ":2"),
-                new InlineKeyboardButton("3").callbackData(CALLBACK_SETTINGS_QUESTIONS_SET + ":3"),
-                new InlineKeyboardButton("5").callbackData(CALLBACK_SETTINGS_QUESTIONS_SET + ":5")
+        BotKeyboard keyboard = new BotKeyboard().addRow(BotButton.callback("1", CALLBACK_SETTINGS_QUESTIONS_SET + ":1"),
+                BotButton.callback("2", CALLBACK_SETTINGS_QUESTIONS_SET + ":2"),
+                BotButton.callback("3", CALLBACK_SETTINGS_QUESTIONS_SET + ":3"),
+                BotButton.callback("5", CALLBACK_SETTINGS_QUESTIONS_SET + ":5")
         ).addRow(
-                new InlineKeyboardButton("🔙 Назад").callbackData(CALLBACK_SETTINGS)
+                BotButton.callback("🔙 Назад", CALLBACK_SETTINGS)
         );
         editMessage(userId, messageId, text, keyboard);
     }
@@ -125,9 +127,8 @@ public class SettingsHandler extends BaseHandler {
 
     public void confirmResetProgress(Long userId, Integer messageId) {
         String text = "⚠️ Вы уверены, что хотите **полностью сбросить весь прогресс обучения**? Все ваши ответы, ошибки и время изучения будут удалены. Это действие необратимо.";
-        InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup(
-                new InlineKeyboardButton("✅ Да, сбросить").callbackData(CALLBACK_SETTINGS_RESET_CONFIRM),
-                new InlineKeyboardButton("❌ Отмена").callbackData(CALLBACK_SETTINGS)
+        BotKeyboard keyboard = new BotKeyboard().addRow(BotButton.callback("✅ Да, сбросить", CALLBACK_SETTINGS_RESET_CONFIRM),
+                BotButton.callback("❌ Отмена", CALLBACK_SETTINGS)
         );
         editMessage(userId, messageId, text, keyboard);
     }

@@ -10,6 +10,8 @@ import org.springframework.stereotype.Repository;
 import java.util.List;
 import java.util.Optional;
 import static com.lbt.telegram_learning_bot.util.Constants.*;
+import com.lbt.telegram_learning_bot.platform.BotButton;
+import com.lbt.telegram_learning_bot.platform.BotKeyboard;
 
 @Repository
 public interface BlockRepository extends JpaRepository<Block, Long> {

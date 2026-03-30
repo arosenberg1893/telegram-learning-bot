@@ -9,6 +9,8 @@ import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.Instant;
 import static com.lbt.telegram_learning_bot.util.Constants.*;
+import com.lbt.telegram_learning_bot.platform.BotButton;
+import com.lbt.telegram_learning_bot.platform.BotKeyboard;
 
 @Entity
 @Table(name = "user_test_result", uniqueConstraints = @UniqueConstraint(columnNames = {"user_id", "test_type", "test_id"}))

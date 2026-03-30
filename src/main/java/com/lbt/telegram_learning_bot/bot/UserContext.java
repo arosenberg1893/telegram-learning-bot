@@ -3,6 +3,8 @@ package com.lbt.telegram_learning_bot.bot;
 import lombok.Data;
 import java.util.ArrayList;
 import java.util.List;
+import com.lbt.telegram_learning_bot.platform.BotButton;
+import com.lbt.telegram_learning_bot.platform.BotKeyboard;
 
 @Data
 public class UserContext {
@@ -40,4 +42,14 @@ public class UserContext {
     private Integer adminSectionsPage = 0;   // текущая страница списка разделов при редактировании
     private Integer adminTopicsPage = 0;     // текущая страница списка тем при редактировании
     private Integer previousCoursesPage = 0; // страница списка курсов, откуда пришли в тест
+    private Long currentPlatformUserId; // ID пользователя на текущей платформе (для отправки сообщений)
+
+    public Long getCurrentPlatformUserId() {
+        return currentPlatformUserId;
+    }
+
+    public void setCurrentPlatformUserId(Long currentPlatformUserId) {
+        this.currentPlatformUserId = currentPlatformUserId;
+    }
+
 }

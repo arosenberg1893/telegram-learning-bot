@@ -3,13 +3,16 @@ package com.lbt.telegram_learning_bot.bot.handler;
 import com.lbt.telegram_learning_bot.bot.BotState;
 import com.lbt.telegram_learning_bot.bot.UserContext;
 import com.lbt.telegram_learning_bot.entity.*;
+import com.lbt.telegram_learning_bot.platform.BotButton;
+import com.lbt.telegram_learning_bot.platform.BotKeyboard;
+import com.lbt.telegram_learning_bot.platform.MessageSender;
 import com.lbt.telegram_learning_bot.repository.*;
 import com.lbt.telegram_learning_bot.service.NavigationService;
 import com.lbt.telegram_learning_bot.service.UserSessionService;
 import com.lbt.telegram_learning_bot.service.UserSettingsService;
 import com.pengrad.telegrambot.TelegramBot;
-import com.pengrad.telegrambot.model.request.InlineKeyboardButton;
-import com.pengrad.telegrambot.model.request.InlineKeyboardMarkup;
+
+
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -20,7 +23,6 @@ import java.util.List;
 import static com.lbt.telegram_learning_bot.util.Constants.*;
 
 @Slf4j
-@Component
 public class TestHandler extends BaseHandler {
 
     private final QuestionRepository questionRepository;
@@ -30,7 +32,7 @@ public class TestHandler extends BaseHandler {
     private final UserTestResultRepository userTestResultRepository;
     private final CourseNavigationHandler courseNavHandler;
 
-    public TestHandler(TelegramBot telegramBot,
+    public TestHandler(MessageSender messageSender,
                        UserSessionService sessionService,
                        NavigationService navigationService,
                        QuestionRepository questionRepository,
@@ -40,14 +42,14 @@ public class TestHandler extends BaseHandler {
                        UserMistakeRepository userMistakeRepository,
                        UserTestResultRepository userTestResultRepository,
                        CourseNavigationHandler courseNavHandler,
-                       UserSettingsService userSettingsService) {   // новый параметр
-        super(telegramBot, sessionService, navigationService, adminUserRepository, userSettingsService);
+                       UserSettingsService userSettingsService) {
+        super(messageSender, sessionService, navigationService, adminUserRepository, userSettingsService);
         this.questionRepository = questionRepository;
         this.answerOptionRepository = answerOptionRepository;
         this.userProgressRepository = userProgressRepository;
         this.userMistakeRepository = userMistakeRepository;
         this.userTestResultRepository = userTestResultRepository;
-        this.courseNavHandler = courseNavHandler; // добавить
+        this.courseNavHandler = courseNavHandler;
     }
     // ================== Публичные методы для диспетчера ==================
     public void handleTestTopic(Long userId, Integer messageId, Long topicId) {
@@ -206,13 +208,13 @@ public class TestHandler extends BaseHandler {
             } else {
                 // Неправильный ответ – показываем пояснение (с кнопкой "Далее")
                 String resultText = buildResultText(userId, context, correct, isLast);
-                InlineKeyboardMarkup keyboard = buildResultKeyboardAfterWrong(context, isLast);
+                BotKeyboard keyboard = buildResultKeyboardAfterWrongBot(context, isLast);
                 sendOrEditResult(userId, messageId, resultText, keyboard);
             }
         } else {
             // Учебный режим – без изменений
             String resultText = buildResultText(userId, context, correct, isLast);
-            InlineKeyboardMarkup keyboard = buildResultKeyboard(context, isLast);
+            BotKeyboard keyboard = buildResultKeyboardBot(context, isLast);
             sendOrEditResult(userId, messageId, resultText, keyboard);
         }
 
@@ -254,33 +256,21 @@ public class TestHandler extends BaseHandler {
                 context.getCorrectAnswers(), context.getWrongAnswers(),
                 context.getCorrectAnswers() + context.getWrongAnswers());
         String backCallbackData = getBackCallbackData(context);
-        InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup(
-                new InlineKeyboardButton[]{new InlineKeyboardButton(BUTTON_COMPLETE).callbackData(backCallbackData)}
-        );
+        BotKeyboard keyboard = new BotKeyboard().addRow(BotButton.callback(BUTTON_COMPLETE, backCallbackData));
         sendOrEditResult(userId, messageId, stats, keyboard);
     }
-    private InlineKeyboardMarkup buildResultKeyboard(UserContext context, boolean isLast) {
+    private BotKeyboard buildResultKeyboardBot(UserContext context, boolean isLast) {
         if (context.isTestMode()) {
             if (isLast) {
-                return new InlineKeyboardMarkup(
-                        new InlineKeyboardButton[]{new InlineKeyboardButton(BUTTON_COMPLETE).callbackData(getBackCallbackData(context))}
-                );
+                return new BotKeyboard().addRow(BotButton.callback(BUTTON_COMPLETE, getBackCallbackData(context)));
             } else {
-                return new InlineKeyboardMarkup(
-                        new InlineKeyboardButton[]{new InlineKeyboardButton(BUTTON_NEXT).callbackData(CALLBACK_NEXT_QUESTION)}
-                );
+                return new BotKeyboard().addRow(BotButton.callback(BUTTON_NEXT, CALLBACK_NEXT_QUESTION));
             }
         } else {
             if (isLast) {
-                return new InlineKeyboardMarkup(
-                        new InlineKeyboardButton[]{new InlineKeyboardButton(BUTTON_NEXT).callbackData(CALLBACK_NEXT_BLOCK)},
-                        new InlineKeyboardButton[]{new InlineKeyboardButton(BUTTON_BACK_TO_TEXT).callbackData(CALLBACK_BACK_TO_BLOCK_TEXT)}
-                ).addRow(new InlineKeyboardButton(BUTTON_EXIT_TOPIC).callbackData(CALLBACK_BACK_TO_TOPICS));
+                return new BotKeyboard().addRow(BotButton.callback(BUTTON_NEXT, CALLBACK_NEXT_BLOCK)).addRow(BotButton.callback(BUTTON_BACK_TO_TEXT, CALLBACK_BACK_TO_BLOCK_TEXT)).addRow(BotButton.callback(BUTTON_EXIT_TOPIC, CALLBACK_BACK_TO_TOPICS));
             } else {
-                return new InlineKeyboardMarkup(
-                        new InlineKeyboardButton[]{new InlineKeyboardButton(BUTTON_NEXT).callbackData(CALLBACK_NEXT_QUESTION)},
-                        new InlineKeyboardButton[]{new InlineKeyboardButton(BUTTON_BACK_TO_TEXT).callbackData(CALLBACK_PREV_QUESTION)}
-                ).addRow(new InlineKeyboardButton(BUTTON_EXIT_TOPIC).callbackData(CALLBACK_BACK_TO_TOPICS));
+                return new BotKeyboard().addRow(BotButton.callback(BUTTON_NEXT, CALLBACK_NEXT_QUESTION)).addRow(BotButton.callback(BUTTON_BACK_TO_TEXT, CALLBACK_PREV_QUESTION)).addRow(BotButton.callback(BUTTON_EXIT_TOPIC, CALLBACK_BACK_TO_TOPICS));
             }
         }
     }
@@ -297,7 +287,7 @@ public class TestHandler extends BaseHandler {
             return CALLBACK_BACK_TO_TOPICS;
         }
     }
-    private void sendOrEditResult(Long userId, Integer messageId, String text, InlineKeyboardMarkup keyboard) {
+    private void sendOrEditResult(Long userId, Integer messageId, String text, BotKeyboard keyboard) {
         if (messageId != null) {
             editMessage(userId, messageId, text, keyboard);
         } else {
@@ -337,11 +327,9 @@ public class TestHandler extends BaseHandler {
                 .orElse(null);
     }
 
-    private InlineKeyboardMarkup buildResultKeyboardAfterWrong(UserContext context, boolean isLast) {
+    private BotKeyboard buildResultKeyboardAfterWrongBot(UserContext context, boolean isLast) {
         // После неправильного ответа всегда показываем кнопку "Далее" к следующему вопросу или итогам
-        return new InlineKeyboardMarkup(
-                new InlineKeyboardButton[]{new InlineKeyboardButton(BUTTON_NEXT).callbackData(CALLBACK_NEXT_QUESTION)}
-        );
+        return new BotKeyboard().addRow(BotButton.callback(BUTTON_NEXT, CALLBACK_NEXT_QUESTION));
     }
 
     private void saveTestResultIfNeeded(Long userId, UserContext context) {
@@ -488,7 +476,7 @@ public class TestHandler extends BaseHandler {
         if (settings.getShuffleOptions()) {
             Collections.shuffle(options);
         }
-        InlineKeyboardMarkup keyboard = buildAnswerOptionsKeyboard(options, question.getId(), backCallbackData);
+        BotKeyboard keyboard = buildAnswerOptionsKeyboardBot(options, question.getId(), backCallbackData);
 
         if (messageId != null) {
             editMessage(userId, messageId, text, keyboard);
@@ -497,14 +485,12 @@ public class TestHandler extends BaseHandler {
         }
     }
 
-    private InlineKeyboardMarkup buildAnswerOptionsKeyboard(List<AnswerOption> options, Long questionId, String backCallbackData) {
-        List<InlineKeyboardButton[]> rows = new ArrayList<>();
+    private BotKeyboard buildAnswerOptionsKeyboardBot(List<AnswerOption> options, Long questionId, String backCallbackData) {
+        BotKeyboard keyboard = new BotKeyboard();
         for (AnswerOption opt : options) {
-            rows.add(new InlineKeyboardButton[]{
-                    new InlineKeyboardButton(opt.getText()).callbackData("answer:" + questionId + ":" + opt.getId())
-            });
+            keyboard.addRow(BotButton.callback(opt.getText(), "answer:" + questionId + ":" + opt.getId()));
         }
-        rows.add(new InlineKeyboardButton[]{new InlineKeyboardButton(BUTTON_BACK).callbackData(backCallbackData)});
-        return new InlineKeyboardMarkup(rows.toArray(new InlineKeyboardButton[0][]));
+        keyboard.addRow(BotButton.callback(BUTTON_BACK, backCallbackData));
+        return keyboard;
     }
 }

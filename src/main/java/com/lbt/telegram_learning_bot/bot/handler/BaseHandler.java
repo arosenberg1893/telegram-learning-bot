@@ -1,82 +1,110 @@
 package com.lbt.telegram_learning_bot.bot.handler;
 
 import com.lbt.telegram_learning_bot.bot.UserContext;
-import com.lbt.telegram_learning_bot.entity.BlockImage;
-import com.lbt.telegram_learning_bot.entity.QuestionImage;
+import com.lbt.telegram_learning_bot.platform.BotButton;
+import com.lbt.telegram_learning_bot.platform.BotKeyboard;
+import com.lbt.telegram_learning_bot.platform.MessageSender;
 import com.lbt.telegram_learning_bot.repository.AdminUserRepository;
 import com.lbt.telegram_learning_bot.service.NavigationService;
 import com.lbt.telegram_learning_bot.service.UserSessionService;
 import com.lbt.telegram_learning_bot.service.UserSettingsService;
-import com.pengrad.telegrambot.TelegramBot;
-import com.pengrad.telegrambot.model.Message;
-import com.pengrad.telegrambot.model.request.InlineKeyboardButton;
-import com.pengrad.telegrambot.model.request.InlineKeyboardMarkup;
-import com.pengrad.telegrambot.model.request.InputMedia;
-import com.pengrad.telegrambot.model.request.InputMediaPhoto;
-import com.pengrad.telegrambot.request.DeleteMessage;
-import com.pengrad.telegrambot.request.EditMessageText;
-import com.pengrad.telegrambot.request.SendMediaGroup;
-import com.pengrad.telegrambot.request.SendMessage;
-import com.pengrad.telegrambot.model.request.ParseMode;
-import com.pengrad.telegrambot.response.SendResponse;
 import lombok.extern.slf4j.Slf4j;
 
-import java.io.File;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 import static com.lbt.telegram_learning_bot.util.Constants.*;
 
 @Slf4j
 public abstract class BaseHandler {
-    protected final TelegramBot telegramBot;
+
+    protected final MessageSender messageSender;
     protected final UserSessionService sessionService;
     protected final NavigationService navigationService;
     protected final AdminUserRepository adminUserRepository;
     protected final UserSettingsService userSettingsService;
 
-    public BaseHandler(TelegramBot telegramBot,
+    public BaseHandler(MessageSender messageSender,
                        UserSessionService sessionService,
                        NavigationService navigationService,
                        AdminUserRepository adminUserRepository,
                        UserSettingsService userSettingsService) {
-        this.telegramBot = telegramBot;
+        this.messageSender = messageSender;
         this.sessionService = sessionService;
         this.navigationService = navigationService;
         this.adminUserRepository = adminUserRepository;
         this.userSettingsService = userSettingsService;
     }
+    private long getEffectiveUserId(long userId) {
+        UserContext ctx = sessionService.getCurrentContext(userId);
+        Long platformId = ctx.getCurrentPlatformUserId();
+        return platformId != null ? platformId : userId;
+    }
+
+
+    // Методы отправки сообщений, переделанные на messageSender
+
+    protected void sendMessage(Long userId, String text) {
+        messageSender.sendText(getEffectiveUserId(userId), text);
+    }
+
+    protected void sendMessage(Long userId, String text, BotKeyboard keyboard) {
+        messageSender.sendMenu(getEffectiveUserId(userId), text, keyboard);
+    }
+
+    protected void editMessage(Long userId, Integer messageId, String text) {
+        messageSender.editMenu(getEffectiveUserId(userId), messageId, text, null);
+    }
+
+    protected void editMessage(Long userId, Integer messageId, String text, BotKeyboard keyboard) {
+        messageSender.editMenu(getEffectiveUserId(userId), messageId, text, keyboard);
+    }
+
+    protected void deleteMessage(Long userId, Integer messageId) {
+        if (messageId != null) {
+            messageSender.deleteMessage(getEffectiveUserId(userId), messageId);
+        }
+    }
+
+    protected void sendMediaGroup(Long userId, List<?> images) {
+        messageSender.sendImageGroup(getEffectiveUserId(userId), images);
+    }
+
+    protected void clearMediaMessages(Long userId) {
+        // Очистка медиа-сообщений теперь управляется на стороне MessageSender,
+        // но для совместимости оставим пустой метод или перенесём логику в MessageSender.
+        // В текущей реализации MessageSender не хранит списки, поэтому этот метод можно оставить пустым,
+        // а очистку делать через deleteMessage.
+        // Для простоты пока ничего не делаем.
+    }
+
+    protected Integer sendProgressMessage(Long userId) {
+        return messageSender.sendProgress(getEffectiveUserId(userId));
+    }
+
+    // Вспомогательные методы, не связанные с отправкой (форматирование, клавиатуры) остаются без изменений.
 
     protected void sendMainMenu(Long userId, Integer messageId) {
         String text = MSG_MAIN_MENU;
-        InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup(
-                new InlineKeyboardButton[]{
-                        new InlineKeyboardButton(BUTTON_MY_COURSES).callbackData(CALLBACK_MY_COURSES),
-                        new InlineKeyboardButton(BUTTON_ALL_COURSES).callbackData(CALLBACK_ALL_COURSES),
-                },
-                new InlineKeyboardButton[]{
-                        new InlineKeyboardButton(BUTTON_SEARCH).callbackData(CALLBACK_SEARCH_COURSES),
-                        new InlineKeyboardButton(BUTTON_STATISTICS).callbackData(CALLBACK_STATISTICS)
-                },
-                new InlineKeyboardButton[]{
-                        new InlineKeyboardButton(BUTTON_MISTAKES).callbackData(CALLBACK_MY_MISTAKES)
-                },
-                new InlineKeyboardButton[]{
-                        new InlineKeyboardButton("⚙️ Настройки").callbackData(CALLBACK_SETTINGS)
-                }
-        );
+        BotKeyboard keyboard = new BotKeyboard()
+                .addRow(BotButton.callback(BUTTON_MY_COURSES, CALLBACK_MY_COURSES),
+                        BotButton.callback(BUTTON_ALL_COURSES, CALLBACK_ALL_COURSES))
+                .addRow(BotButton.callback(BUTTON_SEARCH, CALLBACK_SEARCH_COURSES),
+                        BotButton.callback(BUTTON_STATISTICS, CALLBACK_STATISTICS))
+                .addRow(BotButton.callback(BUTTON_MISTAKES, CALLBACK_MY_MISTAKES))
+                .addRow(BotButton.callback("⚙️ Настройки", CALLBACK_SETTINGS));
+
         if (isAdmin(userId)) {
             keyboard.addRow(
-                    new InlineKeyboardButton(BUTTON_CREATE_COURSE).callbackData(CALLBACK_CREATE_COURSE),
-                    new InlineKeyboardButton(BUTTON_EDIT_COURSE).callbackData(CALLBACK_EDIT_COURSE),
-                    new InlineKeyboardButton(BUTTON_DELETE_COURSE).callbackData(CALLBACK_DELETE_COURSE)
+                    BotButton.callback(BUTTON_CREATE_COURSE, CALLBACK_CREATE_COURSE),
+                    BotButton.callback(BUTTON_EDIT_COURSE, CALLBACK_EDIT_COURSE),
+                    BotButton.callback(BUTTON_DELETE_COURSE, CALLBACK_DELETE_COURSE)
             );
         }
+
         if (messageId != null) {
             editMessage(userId, messageId, text, keyboard);
         } else {
@@ -87,175 +115,38 @@ public abstract class BaseHandler {
     protected boolean isAdmin(Long userId) {
         return adminUserRepository.existsByUserId(userId);
     }
-    // ================== Отправка и редактирование сообщений ==================
-    protected void sendMessage(Long userId, String text) {
-        sendMessage(userId, text, null);
-    }
 
-    protected void sendMessage(Long userId, String text, InlineKeyboardMarkup keyboard) {
-        if (keyboard != null) {
-            UserContext context = sessionService.getCurrentContext(userId);
-            Integer prevId = context.getLastInteractiveMessageId();
-            if (prevId != null) {
-                deleteMessage(userId, prevId);
-            }
-            SendMessage request = new SendMessage(userId, text).replyMarkup(keyboard);
-            request.parseMode(ParseMode.Markdown);
-            SendResponse response = telegramBot.execute(request);
-            if (!response.isOk()) {
-                log.error("Failed to send message to user {}: {}", userId, response.description());
-            } else {
-                context.setLastInteractiveMessageId(response.message().messageId());
-                sessionService.updateSessionContext(userId, context);
-            }
-        } else {
-            SendMessage request = new SendMessage(userId, text).parseMode(ParseMode.Markdown);
-            var response = telegramBot.execute(request);
-            if (!response.isOk()) {
-                log.error("Failed to send message to user {}: {}", userId, response.description());
-            }
-        }
-    }
-
-    protected void editMessage(Long userId, Integer messageId, String text) {
-        editMessage(userId, messageId, text, null);
-    }
-
-    protected void editMessage(Long userId, Integer messageId, String text, InlineKeyboardMarkup keyboard) {
-        EditMessageText request = new EditMessageText(userId, messageId, text);
-        request.parseMode(ParseMode.Markdown);
-        if (keyboard != null) {
-            request.replyMarkup(keyboard);
-        }
-        var response = telegramBot.execute(request);
-        if (!response.isOk()) {
-            log.error("Failed to edit message for user {}: {}", userId, response.description());
-        } else {
-            if (keyboard == null) {
-                UserContext context = sessionService.getCurrentContext(userId);
-                context.setLastInteractiveMessageId(null);
-                sessionService.updateSessionContext(userId, context);
-            }
-        }
-    }
-
-    protected void deleteMessage(Long userId, Integer messageId) {
-        if (messageId == null) return;
-        DeleteMessage request = new DeleteMessage(userId, messageId);
-        var response = telegramBot.execute(request);
-        if (!response.isOk()) {
-            log.debug("Failed to delete message {} for user {}: {}", messageId, userId, response.description());
-        }
-    }
-
-    protected void sendMediaGroup(Long userId, List<?> images) {
-        UserContext context = sessionService.getCurrentContext(userId);
-        if (context.getLastMediaMessageIds() != null) {
-            for (Integer msgId : context.getLastMediaMessageIds()) {
-                deleteMessage(userId, msgId);
-            }
-            context.getLastMediaMessageIds().clear();
-            sessionService.updateSessionContext(userId, context);
-        }
-
-        if (images.isEmpty()) {
-            return;
-        }
-
-        List<InputMedia> media = new ArrayList<>();
-        for (Object img : images) {
-            String filePath;
-            String description;
-            if (img instanceof BlockImage bi) {
-                filePath = bi.getFilePath();
-                description = bi.getDescription();
-            } else if (img instanceof QuestionImage qi) {
-                filePath = qi.getFilePath();
-                description = qi.getDescription();
-            } else {
-                continue;
-            }
-            if (filePath == null || filePath.isEmpty()) continue;
-            InputMediaPhoto photo = new InputMediaPhoto(new File(filePath));
-            if (description != null && !description.isEmpty()) {
-                photo.caption(description);
-            }
-            media.add(photo);
-        }
-        if (media.isEmpty()) return;
-
-        SendMediaGroup request = new SendMediaGroup(userId, media.toArray(new InputMedia[0]));
-        var response = telegramBot.execute(request);
-        if (response.isOk()) {
-            Message[] messagesArray = response.messages();
-            List<Message> messages = Arrays.asList(messagesArray);
-            List<Integer> newIds = messages.stream().map(Message::messageId).toList();
-            context.setLastMediaMessageIds(newIds);
-            sessionService.updateSessionContext(userId, context);
-        } else {
-            log.error("Failed to send media group to user {}: {}", userId, response.description());
-        }
-    }
-
-    protected void clearMediaMessages(Long userId) {
-        UserContext context = sessionService.getCurrentContext(userId);
-        if (context.getLastMediaMessageIds() != null) {
-            for (Integer msgId : context.getLastMediaMessageIds()) {
-                deleteMessage(userId, msgId);
-            }
-            context.getLastMediaMessageIds().clear();
-            sessionService.updateSessionContext(userId, context);
-        }
-    }
-
-    protected Integer sendProgressMessage(Long userId) {
-        SendMessage request = new SendMessage(userId, MSG_PROGRESS);
-        SendResponse response = telegramBot.execute(request);
-        if (response.isOk()) {
-            return response.message().messageId();
-        }
-        return null;
-    }
-
-    // ================== Вспомогательные клавиатуры ==================
-    protected InlineKeyboardMarkup createRetryOrCancelKeyboard() {
-        return new InlineKeyboardMarkup(
-                new InlineKeyboardButton[]{new InlineKeyboardButton(BUTTON_RETRY).callbackData(CALLBACK_RETRY)},
-                new InlineKeyboardButton[]{new InlineKeyboardButton(BUTTON_CANCEL).callbackData(CALLBACK_MAIN_MENU)}
+    // Вспомогательные методы (форматирование, клавиатуры) остаются как были
+    protected BotKeyboard createRetryOrCancelKeyboard() {
+        return BotKeyboard.rows(
+                new BotButton[]{BotButton.callback(BUTTON_RETRY, CALLBACK_RETRY)},
+                new BotButton[]{BotButton.callback(BUTTON_CANCEL, CALLBACK_MAIN_MENU)}
         );
     }
 
-    protected InlineKeyboardMarkup createCancelKeyboard() {
-        return new InlineKeyboardMarkup(
-                new InlineKeyboardButton[]{new InlineKeyboardButton(BUTTON_CANCEL).callbackData(CALLBACK_MAIN_MENU)}
+    protected BotKeyboard createCancelKeyboard() {
+        return BotKeyboard.of(BotButton.callback(BUTTON_CANCEL, CALLBACK_MAIN_MENU));
+    }
+
+    protected BotKeyboard createBackToMainKeyboard() {
+        return BotKeyboard.backToMain();
+    }
+
+    protected BotKeyboard createSearchNotFoundKeyboard() {
+        return BotKeyboard.rows(
+                new BotButton[]{BotButton.callback(BUTTON_RETRY_SEARCH, CALLBACK_SEARCH_COURSES)},
+                new BotButton[]{BotButton.callback(BUTTON_MAIN_MENU, CALLBACK_MAIN_MENU)}
         );
     }
 
-    protected InlineKeyboardMarkup createBackToMainKeyboard() {
-        return new InlineKeyboardMarkup(
-                new InlineKeyboardButton[]{new InlineKeyboardButton(BUTTON_MAIN_MENU).callbackData(CALLBACK_MAIN_MENU)}
-        );
+    protected BotKeyboard createCancelKeyboardWithBackToTopics() {
+        return BotKeyboard.of(BotButton.callback(BUTTON_CANCEL, CALLBACK_BACK_TO_TOPICS));
     }
 
-    protected InlineKeyboardMarkup createSearchNotFoundKeyboard() {
-        return new InlineKeyboardMarkup(
-                new InlineKeyboardButton[]{new InlineKeyboardButton(BUTTON_RETRY_SEARCH).callbackData(CALLBACK_SEARCH_COURSES)},
-                new InlineKeyboardButton[]{new InlineKeyboardButton(BUTTON_MAIN_MENU).callbackData(CALLBACK_MAIN_MENU)}
-        );
-    }
-
-    protected InlineKeyboardMarkup createCancelKeyboardWithBackToTopics() {
-        return new InlineKeyboardMarkup(
-                new InlineKeyboardButton[]{new InlineKeyboardButton(BUTTON_CANCEL).callbackData(CALLBACK_BACK_TO_TOPICS)}
-        );
-    }
-
-    protected InlineKeyboardMarkup createStatisticsKeyboard() {
-        return new InlineKeyboardMarkup(
-                new InlineKeyboardButton[]{
-                        new InlineKeyboardButton(BUTTON_EXPORT_PDF).callbackData(CALLBACK_EXPORT_PDF),
-                        new InlineKeyboardButton(BUTTON_MAIN_MENU).callbackData(CALLBACK_MAIN_MENU)
-                }
+    protected BotKeyboard createStatisticsKeyboard() {
+        return BotKeyboard.rows(
+                new BotButton[]{BotButton.callback(BUTTON_EXPORT_PDF, CALLBACK_EXPORT_PDF)},
+                new BotButton[]{BotButton.callback(BUTTON_MAIN_MENU, CALLBACK_MAIN_MENU)}
         );
     }
 
@@ -263,9 +154,9 @@ public abstract class BaseHandler {
         long hours = seconds / 3600;
         long minutes = (seconds % 3600) / 60;
         if (hours > 0) {
-            return String.format(com.lbt.telegram_learning_bot.util.Constants.FORMAT_STUDY_TIME_HOURS, hours, minutes);
+            return String.format(FORMAT_STUDY_TIME_HOURS, hours, minutes);
         } else {
-            return String.format(com.lbt.telegram_learning_bot.util.Constants.FORMAT_STUDY_TIME_MINUTES, minutes);
+            return String.format(FORMAT_STUDY_TIME_MINUTES, minutes);
         }
     }
 
@@ -295,9 +186,7 @@ public abstract class BaseHandler {
         }
     }
 
-    protected InlineKeyboardMarkup createAdminCancelKeyboardWithBackToTopics() {
-        return new InlineKeyboardMarkup(
-                new InlineKeyboardButton[]{new InlineKeyboardButton(BUTTON_CANCEL).callbackData(CALLBACK_ADMIN_BACK_TO_TOPICS)}
-        );
+    protected BotKeyboard createAdminCancelKeyboardWithBackToTopics() {
+        return BotKeyboard.of(BotButton.callback(BUTTON_CANCEL, CALLBACK_ADMIN_BACK_TO_TOPICS));
     }
 }

@@ -33,6 +33,10 @@
 	</properties>
 	<repositories>
 		<repository>
+			<id>maven-central</id>
+			<url>https://repo.maven.apache.org/maven2</url>
+		</repository>
+		<repository>
 			<id>itext-releases</id>
 			<name>iText Repository - releases</name>
 			<url>https://repo.itextsupport.com/releases</url>
@@ -51,7 +55,6 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-webmvc</artifactId>
 		</dependency>
-
 		<dependency>
 			<groupId>org.postgresql</groupId>
 			<artifactId>postgresql</artifactId>
@@ -93,6 +96,17 @@
 			<artifactId>itext7-core</artifactId>
 			<version>${itext.version}</version>
 			<type>pom</type>
+		</dependency>
+
+
+		<!-- Flyway для управления миграциями БД -->
+		<dependency>
+			<groupId>org.flywaydb</groupId>
+			<artifactId>flyway-core</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.flywaydb</groupId>
+			<artifactId>flyway-database-postgresql</artifactId>
 		</dependency>
 	</dependencies>
 
