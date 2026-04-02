@@ -1,6 +1,5 @@
 package com.lbt.telegram_learning_bot.bot;
 
-// BotState.java
 public enum BotState {
     MAIN_MENU,
     MY_COURSES,
@@ -10,7 +9,7 @@ public enum BotState {
     COURSE_SECTIONS,
     SECTION_TOPICS,
     TOPIC_BLOCKS,
-    TOPIC_LEARNING,      // <-- новое состояние
+    TOPIC_LEARNING,
     BLOCK_CONTENT,
     QUESTION,
     TEST_RESULT,
@@ -30,5 +29,5 @@ public enum BotState {
     EDIT_SECTION_CHOOSE_TOPIC,
     AWAITING_IMAGES,
     AWAITING_LINK_CODE,
-    AWAITING_PAGE_SIZE_INPUT,  // ожидание ввода числа для размера страницы
+    AWAITING_PAGE_SIZE_INPUT   // ожидание ввода числа для размера страницы
 }

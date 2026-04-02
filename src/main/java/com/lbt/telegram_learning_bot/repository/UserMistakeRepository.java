@@ -28,4 +28,20 @@ public interface UserMistakeRepository extends JpaRepository<UserMistake, Long> 
     @Transactional
     @Query("DELETE FROM UserMistake um WHERE um.userId = :userId")
     void deleteByUserId(@Param("userId") Long userId);
+
+    // ================== НОВЫЙ МЕТОД ДЛЯ СЛИЯНИЯ АККАУНТОВ ==================
+    /**
+     * Объединяет записи об ошибках: копирует из slave в master,
+     * при конфликте (user_id, question_id) оставляет запись с более поздним last_mistake_at.
+     */
+    @Modifying
+    @Transactional
+    @Query(value = "INSERT INTO user_mistake (user_id, question_id, last_mistake_at) " +
+            "SELECT :masterUserId, question_id, last_mistake_at " +
+            "FROM user_mistake WHERE user_id = :slaveUserId " +
+            "ON CONFLICT (user_id, question_id) DO UPDATE SET " +
+            "last_mistake_at = EXCLUDED.last_mistake_at " +
+            "WHERE EXCLUDED.last_mistake_at > user_mistake.last_mistake_at",
+            nativeQuery = true)
+    void mergeUserMistakes(@Param("slaveUserId") Long slaveUserId, @Param("masterUserId") Long masterUserId);
 }

@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lbt.telegram_learning_bot.bot.BotState;
 import com.lbt.telegram_learning_bot.bot.UserContext;
 import com.lbt.telegram_learning_bot.bot.handler.*;
-import com.lbt.telegram_learning_bot.entity.UserSettings;
 import com.lbt.telegram_learning_bot.platform.BotButton;
 import com.lbt.telegram_learning_bot.platform.BotKeyboard;
 import com.lbt.telegram_learning_bot.platform.Platform;
@@ -168,6 +167,7 @@ public class VkBotHandler {
             String action = parts[0];
 
             switch (action) {
+                // навигация
                 case CALLBACK_MY_COURSES:
                     courseNavHandler.handleMyCourses(internalUserId, messageId, 0, vkPageSize);
                     break;
@@ -227,6 +227,8 @@ public class VkBotHandler {
                 case CALLBACK_BACK_TO_BLOCK_TEXT:
                     testHandler.handleBackToBlockText(internalUserId, messageId);
                     break;
+
+                // тесты
                 case CALLBACK_TEST_TOPIC:
                     testHandler.handleTestTopic(internalUserId, messageId, Long.parseLong(parts[1]));
                     break;
@@ -236,23 +238,27 @@ public class VkBotHandler {
                 case CALLBACK_TEST_COURSE:
                     testHandler.handleTestCourse(internalUserId, messageId, Long.parseLong(parts[1]));
                     break;
+
+                // администрирование
                 case CALLBACK_CREATE_COURSE:
-                    if (isAdmin(internalUserId)) adminHandler.promptCreateCourse(internalUserId, messageId);
+                    if (!isAdmin(internalUserId)) return;
+                    adminHandler.promptCreateCourse(internalUserId, messageId);
                     break;
                 case CALLBACK_EDIT_COURSE:
-                    if (isAdmin(internalUserId)) adminHandler.promptEditCourse(internalUserId, messageId, vkPageSize);
+                    if (!isAdmin(internalUserId)) return;
+                    adminHandler.promptEditCourse(internalUserId, messageId, vkPageSize);
                     break;
                 case CALLBACK_DELETE_COURSE:
-                    if (isAdmin(internalUserId)) adminHandler.promptDeleteCourse(internalUserId, messageId, vkPageSize);
+                    if (!isAdmin(internalUserId)) return;
+                    adminHandler.promptDeleteCourse(internalUserId, messageId, vkPageSize);
                     break;
                 case CALLBACK_SELECT_COURSE_FOR_EDIT:
-                    if (isAdmin(internalUserId)) adminHandler.handleSelectCourseForEdit(internalUserId, messageId, Long.parseLong(parts[1]));
+                    if (!isAdmin(internalUserId)) return;
+                    adminHandler.handleSelectCourseForEdit(internalUserId, messageId, Long.parseLong(parts[1]));
                     break;
                 case CALLBACK_SELECT_COURSE_FOR_DELETE:
-                    if (isAdmin(internalUserId)) adminHandler.handleSelectCourseForDelete(internalUserId, messageId, Long.parseLong(parts[1]));
-                    break;
-                case CALLBACK_SELECT_SECTION_FOR_EDIT:
-                    if (isAdmin(internalUserId)) adminHandler.handleSelectSectionForEdit(internalUserId, messageId, Long.parseLong(parts[1]));
+                    if (!isAdmin(internalUserId)) return;
+                    adminHandler.handleSelectCourseForDelete(internalUserId, messageId, Long.parseLong(parts[1]));
                     break;
                 case CALLBACK_EDIT_COURSE_ACTION:
                     if (!isAdmin(internalUserId)) return;
@@ -262,38 +268,49 @@ public class VkBotHandler {
                     if (!isAdmin(internalUserId)) return;
                     adminHandler.handleEditSectionAction(internalUserId, messageId, parts[1], vkPageSize);
                     break;
+                case CALLBACK_SELECT_SECTION_FOR_EDIT:
+                    if (!isAdmin(internalUserId)) return;
+                    adminHandler.handleSelectSectionForEdit(internalUserId, messageId, Long.parseLong(parts[1]));
+                    break;
                 case CALLBACK_SELECT_TOPIC_FOR_EDIT:
-                    if (isAdmin(internalUserId)) adminHandler.handleSelectTopicForEdit(internalUserId, messageId, Long.parseLong(parts[1]));
+                    if (!isAdmin(internalUserId)) return;
+                    adminHandler.handleSelectTopicForEdit(internalUserId, messageId, Long.parseLong(parts[1]));
                     break;
                 case CALLBACK_CONFIRM_DELETE_COURSE:
-                    if (isAdmin(internalUserId)) adminHandler.handleConfirmDeleteCourse(internalUserId, messageId, Long.parseLong(parts[1]));
+                    if (!isAdmin(internalUserId)) return;
+                    adminHandler.handleConfirmDeleteCourse(internalUserId, messageId, Long.parseLong(parts[1]));
                     break;
                 case CALLBACK_RETRY:
                     adminHandler.handleRetry(internalUserId, messageId);
                     break;
                 case CALLBACK_ADMIN_COURSES_PAGE:
-                    if (isAdmin(internalUserId)) adminHandler.handleAdminCoursesPage(internalUserId, messageId, parts[1], Integer.parseInt(parts[2]), vkPageSize);
+                    if (!isAdmin(internalUserId)) return;
+                    adminHandler.handleAdminCoursesPage(internalUserId, messageId, parts[1], Integer.parseInt(parts[2]), vkPageSize);
                     break;
                 case CALLBACK_ADMIN_SECTIONS_PAGE:
-                    if (isAdmin(internalUserId)) adminHandler.handleAdminSectionsPage(internalUserId, messageId, Long.parseLong(parts[1]), Integer.parseInt(parts[2]), vkPageSize);
+                    if (!isAdmin(internalUserId)) return;
+                    adminHandler.handleAdminSectionsPage(internalUserId, messageId, Long.parseLong(parts[1]), Integer.parseInt(parts[2]), vkPageSize);
                     break;
                 case CALLBACK_ADMIN_TOPICS_PAGE:
-                    if (isAdmin(internalUserId)) adminHandler.handleAdminTopicsPage(internalUserId, messageId, Long.parseLong(parts[1]), Integer.parseInt(parts[2]), vkPageSize);
+                    if (!isAdmin(internalUserId)) return;
+                    adminHandler.handleAdminTopicsPage(internalUserId, messageId, Long.parseLong(parts[1]), Integer.parseInt(parts[2]), vkPageSize);
                     break;
                 case CALLBACK_ADMIN_BACK_TO_SECTIONS:
-                    if (isAdmin(internalUserId)) adminHandler.handleBackToSectionsFromEdit(internalUserId, messageId, vkPageSize);
+                    if (!isAdmin(internalUserId)) return;
+                    adminHandler.handleBackToSectionsFromEdit(internalUserId, messageId, vkPageSize);
                     break;
                 case CALLBACK_ADMIN_BACK_TO_TOPICS:
-                    if (isAdmin(internalUserId)) {
-                        if (parts.length >= 3) {
-                            Long sectionId = Long.parseLong(parts[1]);
-                            int page = Integer.parseInt(parts[2]);
-                            adminHandler.handleBackToTopicsFromEdit(internalUserId, messageId, sectionId, page, vkPageSize);
-                        } else {
-                            adminHandler.handleBackToTopicsFromEdit(internalUserId, messageId, vkPageSize);
-                        }
+                    if (!isAdmin(internalUserId)) return;
+                    if (parts.length >= 3) {
+                        Long sectionId = Long.parseLong(parts[1]);
+                        int page = Integer.parseInt(parts[2]);
+                        adminHandler.handleBackToTopicsFromEdit(internalUserId, messageId, sectionId, page, vkPageSize);
+                    } else {
+                        adminHandler.handleBackToTopicsFromEdit(internalUserId, messageId, vkPageSize);
                     }
                     break;
+
+                // статистика и ошибки
                 case CALLBACK_STATISTICS:
                     if (parts.length > 1 && CALLBACK_BACK.equals(parts[1])) {
                         sender.deleteMessage(vkUserId, messageId);
@@ -308,6 +325,8 @@ public class VkBotHandler {
                 case CALLBACK_MY_MISTAKES:
                     testHandler.handleMyMistakes(internalUserId, messageId);
                     break;
+
+                // настройки
                 case CALLBACK_SETTINGS:
                     settingsHandler.showSettingsMenu(internalUserId, messageId);
                     break;
@@ -316,6 +335,9 @@ public class VkBotHandler {
                     break;
                 case CALLBACK_SETTINGS_PAGESIZE:
                     settingsHandler.showPageSizeOptions(internalUserId, messageId);
+                    break;
+                case CALLBACK_SETTINGS_PAGESIZE_OTHER:
+                    settingsHandler.promptPageSizeInput(internalUserId, messageId);
                     break;
                 case CALLBACK_SETTINGS_QUESTIONS:
                     settingsHandler.showQuestionsPerBlockOptions(internalUserId, messageId);
@@ -344,21 +366,49 @@ public class VkBotHandler {
                 case CALLBACK_SETTINGS_RESET_CONFIRM:
                     settingsHandler.resetProgress(internalUserId, messageId);
                     break;
+
+                // привязка аккаунтов (новые)
                 case CALLBACK_LINK_GENERATE:
                     linkHandler.generateCode(internalUserId, Platform.VK, sender);
                     break;
+                case CALLBACK_LINK_KEEP_TELEGRAM:
+                    if (parts.length >= 2) {
+                        linkHandler.resolveConflictKeepTelegram(internalUserId, parts[1], Platform.VK, vkUserId, sender);
+                    }
+                    break;
+                case CALLBACK_LINK_KEEP_VK:
+                    if (parts.length >= 2) {
+                        linkHandler.resolveConflictKeepVk(internalUserId, parts[1], Platform.VK, vkUserId, sender);
+                    }
+                    break;
+                case CALLBACK_LINK_MERGE:
+                    if (parts.length >= 2) {
+                        linkHandler.resolveConflictMerge(internalUserId, parts[1], Platform.VK, vkUserId, sender);
+                    }
+                    break;
+                case CALLBACK_LINK_MERGE_SETTINGS_TG:
+                    if (parts.length >= 2) {
+                        linkHandler.finalizeMergeWithTelegramSettings(internalUserId, parts[1], Platform.VK, vkUserId, sender);
+                    }
+                    break;
+                case CALLBACK_LINK_MERGE_SETTINGS_VK:
+                    if (parts.length >= 2) {
+                        linkHandler.finalizeMergeWithVkSettings(internalUserId, parts[1], Platform.VK, vkUserId, sender);
+                    }
+                    break;
+
+                // старые callback-и (для обратной совместимости)
                 case CALLBACK_LINK_RESOLVE_KEEP_THIS:
                     if (parts.length >= 2) {
-                        String code = parts[1];
-                        linkHandler.resolveConflictKeepThis(internalUserId, code, Platform.VK, vkUserId, sender);
+                        linkHandler.resolveConflictKeepTelegram(internalUserId, parts[1], Platform.VK, vkUserId, sender);
                     }
                     break;
                 case CALLBACK_LINK_RESOLVE_KEEP_OTHER:
                     if (parts.length >= 2) {
-                        String code = parts[1];
-                        linkHandler.resolveConflictKeepOther(internalUserId, code, Platform.VK, vkUserId, sender);
+                        linkHandler.resolveConflictKeepVk(internalUserId, parts[1], Platform.VK, vkUserId, sender);
                     }
                     break;
+
                 case CALLBACK_MAIN_MENU:
                     sendMainMenu(internalUserId, vkUserId, messageId);
                     sessionService.updateSessionState(internalUserId, BotState.MAIN_MENU);

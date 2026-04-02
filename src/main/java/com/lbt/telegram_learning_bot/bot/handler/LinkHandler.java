@@ -61,7 +61,7 @@ public class LinkHandler {
      * Применяет код привязки. При конфликте прогресса показывает выбор.
      */
     public void applyCode(long internalUserId, String code, Platform platform,
-                           long externalUserId, MessageSender sender) {
+                          long externalUserId, MessageSender sender) {
         AccountLinkService.LinkResult result =
                 accountLinkService.applyLinkCode(code, platform, externalUserId);
 
@@ -81,57 +81,125 @@ public class LinkHandler {
         }
     }
 
-    // ─── Разрешение конфликта ─────────────────────────────────────────────────
+    // ─── Разрешение конфликта – три варианта ──────────────────────────────────
 
     /**
-     * Пользователь выбрал сохранить прогресс ТЕКУЩЕГО аккаунта (receiver).
+     * Пользователь выбрал сохранить прогресс Telegram (текущий аккаунт).
      */
-    public void resolveConflictKeepThis(long internalUserId, String code,
-                                         Platform platform, long externalUserId,
-                                         MessageSender sender) {
+    public void resolveConflictKeepTelegram(long internalUserId, String code,
+                                            Platform platform, long externalUserId,
+                                            MessageSender sender) {
         Long issuerInternal = getIssuerInternalId(code);
         if (issuerInternal == null) {
             sender.sendMenu(internalUserId, MSG_LINK_INVALID_CODE, BotKeyboard.backToMain());
             return;
         }
-        // keepInternal = receiver (текущий), discardInternal = issuer
-        accountLinkService.resolveConflict(internalUserId, issuerInternal, code, platform, externalUserId);
+        // internalUserId – это Telegram (receiver), issuerInternal – VK
+        accountLinkService.resolveConflictKeepTelegram(internalUserId, code, platform, externalUserId);
         sender.sendMenu(internalUserId, MSG_LINK_SUCCESS, BotKeyboard.backToMain());
-        log.info("Conflict resolved: kept receiver={}, discarded issuer={}", internalUserId, issuerInternal);
+        log.info("Conflict resolved: kept Telegram user {}, discarded VK user {}", internalUserId, issuerInternal);
     }
 
     /**
-     * Пользователь выбрал сохранить прогресс ДРУГОГО аккаунта (issuer).
+     * Пользователь выбрал сохранить прогресс ВКонтакте (другой аккаунт).
      */
-    public void resolveConflictKeepOther(long internalUserId, String code,
-                                          Platform platform, long externalUserId,
-                                          MessageSender sender) {
+    public void resolveConflictKeepVk(long internalUserId, String code,
+                                      Platform platform, long externalUserId,
+                                      MessageSender sender) {
         Long issuerInternal = getIssuerInternalId(code);
         if (issuerInternal == null) {
             sender.sendMenu(internalUserId, MSG_LINK_INVALID_CODE, BotKeyboard.backToMain());
             return;
         }
-        // keepInternal = issuer, discardInternal = receiver (текущий)
-        accountLinkService.resolveConflict(issuerInternal, internalUserId, code, platform, externalUserId);
+        // internalUserId – это Telegram (receiver), issuerInternal – VK
+        accountLinkService.resolveConflictKeepVk(internalUserId, code, platform, externalUserId);
         sender.sendMenu(internalUserId, MSG_LINK_SUCCESS, BotKeyboard.backToMain());
-        log.info("Conflict resolved: kept issuer={}, discarded receiver={}", issuerInternal, internalUserId);
+        log.info("Conflict resolved: kept VK user {}, discarded Telegram user {}", issuerInternal, internalUserId);
+    }
+
+    /**
+     * Пользователь выбрал объединить прогресс. Показываем выбор настроек.
+     */
+    public void resolveConflictMerge(long internalUserId, String code,
+                                     Platform platform, long externalUserId,
+                                     MessageSender sender) {
+        Long issuerInternal = getIssuerInternalId(code);
+        if (issuerInternal == null) {
+            sender.sendMenu(internalUserId, MSG_LINK_INVALID_CODE, BotKeyboard.backToMain());
+            return;
+        }
+        // Показываем выбор: чьи настройки использовать
+        showMergeSettingsChoice(internalUserId, issuerInternal, code, platform, externalUserId, sender);
+    }
+
+    // ─── Выбор настроек при слиянии ──────────────────────────────────────────
+
+    private void showMergeSettingsChoice(long receiverInternal, long issuerInternal,
+                                         String code, Platform platform, long externalUserId,
+                                         MessageSender sender) {
+        String text = "🔧 При объединении прогресса нужно выбрать, *чьи настройки использовать*:\n" +
+                "• Настройки Telegram (размер страницы, перемешивание и т.д.)\n" +
+                "• Настройки ВКонтакте";
+        BotKeyboard keyboard = new BotKeyboard()
+                .addRow(BotButton.callback("Настройки Telegram",
+                        CALLBACK_LINK_MERGE_SETTINGS_TG + ":" + code))
+                .addRow(BotButton.callback("Настройки ВКонтакте",
+                        CALLBACK_LINK_MERGE_SETTINGS_VK + ":" + code))
+                .addRow(BotButton.callback(BUTTON_CANCEL, CALLBACK_MAIN_MENU));
+        sender.sendMenu(receiverInternal, text, keyboard);
+    }
+
+    /**
+     * Завершаем слияние с выбором настроек от Telegram.
+     */
+    public void finalizeMergeWithTelegramSettings(long internalUserId, String code,
+                                                  Platform platform, long externalUserId,
+                                                  MessageSender sender) {
+        Long issuerInternal = getIssuerInternalId(code);
+        if (issuerInternal == null) {
+            sender.sendMenu(internalUserId, MSG_LINK_INVALID_CODE, BotKeyboard.backToMain());
+            return;
+        }
+        // internalUserId – Telegram, issuerInternal – VK
+        // Настройки берём с Telegram (internalUserId)
+        accountLinkService.resolveConflictMerge(internalUserId, issuerInternal, internalUserId,
+                code, platform, externalUserId);
+        sender.sendMenu(internalUserId, MSG_LINK_SUCCESS, BotKeyboard.backToMain());
+        log.info("Merge completed: kept both progresses, settings from Telegram user {}", internalUserId);
+    }
+
+    /**
+     * Завершаем слияние с выбором настроек от VK.
+     */
+    public void finalizeMergeWithVkSettings(long internalUserId, String code,
+                                            Platform platform, long externalUserId,
+                                            MessageSender sender) {
+        Long issuerInternal = getIssuerInternalId(code);
+        if (issuerInternal == null) {
+            sender.sendMenu(internalUserId, MSG_LINK_INVALID_CODE, BotKeyboard.backToMain());
+            return;
+        }
+        // Настройки берём с VK (issuerInternal)
+        accountLinkService.resolveConflictMerge(internalUserId, issuerInternal, issuerInternal,
+                code, platform, externalUserId);
+        sender.sendMenu(internalUserId, MSG_LINK_SUCCESS, BotKeyboard.backToMain());
+        log.info("Merge completed: kept both progresses, settings from VK user {}", issuerInternal);
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────────
 
     private void showConflictChoice(long internalUserId, String code, MessageSender sender) {
         BotKeyboard keyboard = new BotKeyboard()
-                .addRow(BotButton.callback(BUTTON_KEEP_THIS_PROGRESS,
-                        CALLBACK_LINK_RESOLVE_KEEP_THIS + ":" + code))
-                .addRow(BotButton.callback(BUTTON_KEEP_OTHER_PROGRESS,
-                        CALLBACK_LINK_RESOLVE_KEEP_OTHER + ":" + code))
+                .addRow(BotButton.callback(BUTTON_KEEP_TELEGRAM_PROGRESS,
+                        CALLBACK_LINK_KEEP_TELEGRAM + ":" + code))
+                .addRow(BotButton.callback(BUTTON_KEEP_VK_PROGRESS,
+                        CALLBACK_LINK_KEEP_VK + ":" + code))
+                .addRow(BotButton.callback(BUTTON_MERGE_PROGRESS,
+                        CALLBACK_LINK_MERGE + ":" + code))
                 .addRow(BotButton.callback(BUTTON_CANCEL, CALLBACK_MAIN_MENU));
         sender.sendMenu(internalUserId, MSG_LINK_CONFLICT, keyboard);
     }
 
-    /**
-     * Извлекает issuerInternalUserId из активного кода.
-     */
     private Long getIssuerInternalId(String code) {
         return linkCodeRepository.findByCodeAndUsedFalse(code.toUpperCase().trim())
                 .map(LinkCode::getIssuerInternalUserId)

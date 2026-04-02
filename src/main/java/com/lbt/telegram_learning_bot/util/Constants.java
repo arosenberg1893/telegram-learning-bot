@@ -107,6 +107,18 @@ public final class Constants {
     public static final String CALLBACK_STATISTICS_BACK = "statistics:back";
     public static final String CALLBACK_BACK_TO_BLOCK_TEXT = "back_to_block_text";
 
+    // ========== Привязка аккаунтов (новые callback-и) ==========
+    public static final String CALLBACK_LINK_GENERATE = "link_generate";
+    public static final String CALLBACK_LINK_KEEP_TELEGRAM = "link_keep_telegram";
+    public static final String CALLBACK_LINK_KEEP_VK = "link_keep_vk";
+    public static final String CALLBACK_LINK_MERGE = "link_merge";
+    public static final String CALLBACK_LINK_MERGE_SETTINGS_TG = "link_merge_settings_tg";
+    public static final String CALLBACK_LINK_MERGE_SETTINGS_VK = "link_merge_settings_vk";
+
+    // Старые callback-и (оставлены для обратной совместимости, но не используются)
+    public static final String CALLBACK_LINK_RESOLVE_KEEP_THIS = "link_keep_this";
+    public static final String CALLBACK_LINK_RESOLVE_KEEP_OTHER = "link_keep_other";
+
     // ========== Сообщения пользователю ==========
     public static final String MSG_NO_DATA = "нет данных";
     public static final String MSG_WRONG_OPTION = "Ошибка: неверный вариант.";
@@ -182,8 +194,6 @@ public final class Constants {
     public static final String DEFAULT_USER_NAME = "Пользователь";
     public static final String MSG_MAIN_MENU = "Главное меню:";
 
-
-
     public static final String MSG_SEARCH_RESULTS_HEADER = "Результаты поиска (страница 1):";
     public static final String MSG_PROGRESS = "⏳ Обрабатываю файл...";
     public static final String PDF_TITLE = "Статистика обучения";
@@ -220,21 +230,23 @@ public final class Constants {
     public static final String CALLBACK_SETTINGS = "settings";
     public static final String CALLBACK_SETTINGS_SHUFFLE = "settings_shuffle";
     public static final String CALLBACK_SETTINGS_PAGESIZE = "settings_pagesize";
+    public static final String CALLBACK_SETTINGS_PAGESIZE_OTHER = "settings_pagesize_other";
     public static final String CALLBACK_SETTINGS_QUESTIONS = "settings_questions";
     public static final String CALLBACK_SETTINGS_EXPLANATIONS = "settings_explanations";
     public static final String CALLBACK_SETTINGS_NOTIFICATIONS = "settings_notifications";
     public static final String CALLBACK_SETTINGS_RESET = "settings_reset";
+    public static final String CALLBACK_SETTINGS_PAGESIZE_SET = "settings_pagesize_set";
+    public static final String CALLBACK_SETTINGS_QUESTIONS_SET = "settings_questions_set";
+    public static final String CALLBACK_SETTINGS_RESET_CONFIRM = "settings_reset_confirm";
+
     public static final int ADMIN_PAGE_SIZE = 5;
+    public static final int ADMIN_DEFAULT_PAGE_SIZE = 5;
 
-    // ========== Привязка аккаунтов ==========
-    public static final String CALLBACK_LINK_GENERATE        = "link_generate";
-    public static final String CALLBACK_LINK_RESOLVE_KEEP_THIS  = "link_keep_this";
-    public static final String CALLBACK_LINK_RESOLVE_KEEP_OTHER = "link_keep_other";
-
+    // ========== Привязка аккаунтов (тексты сообщений и кнопок) ==========
     public static final String MSG_LINK_CODE_GENERATED =
             "🔗 Ваш код для привязки аккаунта: *%s*\n\n" +
-            "Откройте бот в другой соц. сети и введите:\n`/link %s`\n\n" +
-            "Код действителен %d минут.";
+                    "Откройте бот в другой соц. сети и введите:\n`/link %s`\n\n" +
+                    "Код действителен %d минут.";
     public static final String MSG_LINK_INVALID_CODE =
             "❌ Код не найден или истёк. Попробуйте сгенерировать новый командой /link";
     public static final String MSG_LINK_SAME_PLATFORM =
@@ -247,23 +259,21 @@ public final class Constants {
             "✅ Аккаунты успешно объединены! Прогресс синхронизирован.";
     public static final String MSG_LINK_CONFLICT =
             "⚠️ У вас есть прогресс в обоих аккаунтах.\n\n" +
-            "Выберите, *чей прогресс сохранить* (второй будет удалён):";
+                    "Выберите, что делать:";
     public static final String MSG_LINK_STATUS_LINKED =
             "🔗 Аккаунты привязаны: %s";
     public static final String MSG_LINK_STATUS_NOT_LINKED =
             "🔓 Другие платформы не привязаны. Используйте /link для связывания.";
-    public static final String BUTTON_KEEP_THIS_PROGRESS  = "Оставить прогресс этого аккаунта";
+
+    // Кнопки для привязки
+    public static final String BUTTON_KEEP_TELEGRAM_PROGRESS = "📱 Оставить прогресс Telegram";
+    public static final String BUTTON_KEEP_VK_PROGRESS = "🌐 Оставить прогресс ВКонтакте";
+    public static final String BUTTON_MERGE_PROGRESS = "🔄 Объединить прогресс";
+    // Старые кнопки (оставлены для обратной совместимости)
+    public static final String BUTTON_KEEP_THIS_PROGRESS = "Оставить прогресс этого аккаунта";
     public static final String BUTTON_KEEP_OTHER_PROGRESS = "Оставить прогресс другого аккаунта";
 
     // ========== Дополнительные форматы ==========
     public static final String FORMAT_STUDY_TIME_HOURS = "%d ч %d мин";
     public static final String FORMAT_STUDY_TIME_MINUTES = "%d мин";
-
-    // ========== Callback data настроек (с параметрами) ==========
-    public static final String CALLBACK_SETTINGS_PAGESIZE_SET = "settings_pagesize_set";
-    public static final String CALLBACK_SETTINGS_QUESTIONS_SET = "settings_questions_set";
-    public static final String CALLBACK_SETTINGS_RESET_CONFIRM = "settings_reset_confirm";
-    public static final String CALLBACK_SETTINGS_PAGESIZE_OTHER = "settings_pagesize_other";
-
-    public static final int ADMIN_DEFAULT_PAGE_SIZE = 5;
 }

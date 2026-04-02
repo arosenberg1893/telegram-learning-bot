@@ -379,6 +379,7 @@ public class TelegramBotHandler extends BaseHandler {
                     handleBack(userId, messageId);
                     break;
 
+                // настройки
                 case CALLBACK_SETTINGS:
                     settingsHandler.showSettingsMenu(userId, messageId);
                     break;
@@ -418,22 +419,57 @@ public class TelegramBotHandler extends BaseHandler {
                 case CALLBACK_SETTINGS_RESET_CONFIRM:
                     settingsHandler.resetProgress(userId, messageId);
                     break;
+
+                // привязка аккаунтов (новые)
                 case CALLBACK_LINK_GENERATE:
                     linkHandler.generateCode(userId, Platform.TELEGRAM,
                             new TelegramMessageSenderAdapter(telegramBot, sessionService, userId));
                     break;
+                case CALLBACK_LINK_KEEP_TELEGRAM:
+                    if (parts.length >= 2) {
+                        linkHandler.resolveConflictKeepTelegram(userId, parts[1], Platform.TELEGRAM, externalUserId,
+                                new TelegramMessageSenderAdapter(telegramBot, sessionService, userId));
+                    }
+                    break;
+                case CALLBACK_LINK_KEEP_VK:
+                    if (parts.length >= 2) {
+                        linkHandler.resolveConflictKeepVk(userId, parts[1], Platform.TELEGRAM, externalUserId,
+                                new TelegramMessageSenderAdapter(telegramBot, sessionService, userId));
+                    }
+                    break;
+                case CALLBACK_LINK_MERGE:
+                    if (parts.length >= 2) {
+                        linkHandler.resolveConflictMerge(userId, parts[1], Platform.TELEGRAM, externalUserId,
+                                new TelegramMessageSenderAdapter(telegramBot, sessionService, userId));
+                    }
+                    break;
+                case CALLBACK_LINK_MERGE_SETTINGS_TG:
+                    if (parts.length >= 2) {
+                        linkHandler.finalizeMergeWithTelegramSettings(userId, parts[1], Platform.TELEGRAM, externalUserId,
+                                new TelegramMessageSenderAdapter(telegramBot, sessionService, userId));
+                    }
+                    break;
+                case CALLBACK_LINK_MERGE_SETTINGS_VK:
+                    if (parts.length >= 2) {
+                        linkHandler.finalizeMergeWithVkSettings(userId, parts[1], Platform.TELEGRAM, externalUserId,
+                                new TelegramMessageSenderAdapter(telegramBot, sessionService, userId));
+                    }
+                    break;
+
+                // старые callback-и (для обратной совместимости)
                 case CALLBACK_LINK_RESOLVE_KEEP_THIS:
                     if (parts.length >= 2) {
-                        linkHandler.resolveConflictKeepThis(userId, parts[1], Platform.TELEGRAM, externalUserId,
+                        linkHandler.resolveConflictKeepTelegram(userId, parts[1], Platform.TELEGRAM, externalUserId,
                                 new TelegramMessageSenderAdapter(telegramBot, sessionService, userId));
                     }
                     break;
                 case CALLBACK_LINK_RESOLVE_KEEP_OTHER:
                     if (parts.length >= 2) {
-                        linkHandler.resolveConflictKeepOther(userId, parts[1], Platform.TELEGRAM, externalUserId,
+                        linkHandler.resolveConflictKeepVk(userId, parts[1], Platform.TELEGRAM, externalUserId,
                                 new TelegramMessageSenderAdapter(telegramBot, sessionService, userId));
                     }
                     break;
+
                 default:
                     log.warn("Unknown callback action: {}", action);
             }
