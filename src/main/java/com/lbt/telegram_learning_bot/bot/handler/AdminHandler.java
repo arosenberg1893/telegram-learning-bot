@@ -1,4 +1,5 @@
 package com.lbt.telegram_learning_bot.bot.handler;
+import com.lbt.telegram_learning_bot.repository.UserStudyTimeRepository;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lbt.telegram_learning_bot.bot.BotState;
@@ -47,6 +48,7 @@ public class AdminHandler extends BaseHandler {
     private final QuestionImageRepository questionImageRepository;
     private final AdminUserRepository adminUserRepository;
     private final UserProgressRepository userProgressRepository;
+    private final UserStudyTimeRepository userStudyTimeRepository;
     private final ObjectMapper objectMapper;
     private final KeyboardBuilder keyboardBuilder;
 
@@ -66,7 +68,8 @@ public class AdminHandler extends BaseHandler {
                         QuestionImageRepository questionImageRepository,
                         AdminUserRepository adminUserRepository,
                         UserProgressRepository userProgressRepository,
-                        ObjectMapper objectMapper,
+                            UserStudyTimeRepository userStudyTimeRepository,
+                            ObjectMapper objectMapper,
                         UserSettingsService userSettingsService) {
         super(messageSender, sessionService, navigationService, adminUserRepository, userSettingsService);
         this.courseImportService = courseImportService;
@@ -80,6 +83,7 @@ public class AdminHandler extends BaseHandler {
         this.questionImageRepository = questionImageRepository;
         this.adminUserRepository = adminUserRepository;
         this.userProgressRepository = userProgressRepository;
+        this.userStudyTimeRepository = userStudyTimeRepository;
         this.objectMapper = objectMapper;
         this.keyboardBuilder = keyboardBuilder;
         this.fileDownloader = fileDownloader;
@@ -263,18 +267,26 @@ public class AdminHandler extends BaseHandler {
         sessionService.updateSessionState(userId, BotState.EDIT_TOPIC_JSON);
     }
 
+    // В AdminHandler.java, метод handleConfirmDeleteCourse:
     public void handleConfirmDeleteCourse(Long userId, Integer messageId, Long courseId) {
-        try {
-            userProgressRepository.deleteByCourseId(courseId);
-            courseRepository.deleteById(courseId);
-            editMessage(userId, messageId, MSG_COURSE_DELETED, createBackToMainKeyboard());
-        } catch (Exception e) {
-            log.error("Error deleting course", e);
-            editMessage(userId, messageId, MSG_ERROR_DELETING_COURSE, createBackToMainKeyboard());
+        synchronized (userId) {
+            try {
+                userStudyTimeRepository.deleteByCourseId(courseId);
+                userProgressRepository.deleteByCourseId(courseId);
+                courseRepository.deleteById(courseId);
+                UserContext context = sessionService.getCurrentContext(userId);
+                if (context.getCurrentCourseId() != null && context.getCurrentCourseId().equals(courseId)) {
+                    context.setCurrentCourseId(null);
+                    sessionService.updateSessionContext(userId, context);
+                }
+                editMessage(userId, messageId, MSG_COURSE_DELETED, createBackToMainKeyboard());
+            } catch (Exception e) {
+                log.error("Error deleting course", e);
+                editMessage(userId, messageId, MSG_ERROR_DELETING_COURSE, createBackToMainKeyboard());
+            }
+            sessionService.updateSessionState(userId, BotState.MAIN_MENU);
         }
-        sessionService.updateSessionState(userId, BotState.MAIN_MENU);
     }
-
     // Обработка JSON для Telegram (Message)
     private void handleCourseJson(Long userId, Message message) {
         try {

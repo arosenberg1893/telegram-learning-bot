@@ -15,27 +15,14 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
-import com.lbt.telegram_learning_bot.platform.BotButton;
-import com.lbt.telegram_learning_bot.platform.BotKeyboard;
 
-/**
- * Сервис управления привязкой аккаунтов между платформами.
- *
- * <p>Схема работы:
- * <ol>
- *   <li>Пользователь вводит /link в боте A → {@link #generateLinkCode} возвращает 6-значный код.</li>
- *   <li>Пользователь вводит /link CODE в боте B → {@link #applyLinkCode} объединяет аккаунты.</li>
- *   <li>При объединении пользователь выбирает, чей прогресс сохранить
- *       (если конфликт), либо прогресс сливается автоматически если у одного из аккаунтов его нет.</li>
- * </ol>
- */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class AccountLinkService {
 
     private static final SecureRandom RANDOM = new SecureRandom();
-    private static final String CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // без I,O,0,1
+    private static final String CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
     private final LinkedAccountRepository linkedAccountRepository;
     private final LinkCodeRepository linkCodeRepository;
@@ -45,14 +32,8 @@ public class AccountLinkService {
     private final UserTestResultRepository userTestResultRepository;
     private final UserSessionRepository userSessionRepository;
     private final UserSettingsRepository userSettingsRepository;
+    private final UserLockService userLockService;
 
-    // ─── Регистрация/поиск аккаунтов ─────────────────────────────────────────
-
-    /**
-     * Возвращает internalUserId для данного платформенного пользователя.
-     * Если аккаунт встречается впервые — создаёт новую запись,
-     * используя externalUserId как internalUserId (первая платформа = «мастер»).
-     */
     @Transactional
     public Long resolveInternalUserId(Platform platform, Long externalUserId) {
         return linkedAccountRepository
@@ -67,9 +48,6 @@ public class AccountLinkService {
                 });
     }
 
-    /**
-     * Проверяет, привязаны ли у пользователя обе платформы.
-     */
     public boolean isLinkedToBothPlatforms(Long internalUserId) {
         List<LinkedAccount> accounts = linkedAccountRepository.findByInternalUserId(internalUserId);
         boolean hasTg = accounts.stream().anyMatch(a -> a.getPlatform() == Platform.TELEGRAM);
@@ -77,27 +55,15 @@ public class AccountLinkService {
         return hasTg && hasVk;
     }
 
-    /**
-     * Возвращает список платформ, привязанных к аккаунту.
-     */
     public List<Platform> getLinkedPlatforms(Long internalUserId) {
         return linkedAccountRepository.findByInternalUserId(internalUserId)
                 .stream().map(LinkedAccount::getPlatform).toList();
     }
 
-    // ─── Генерация кода ───────────────────────────────────────────────────────
-
-    /**
-     * Генерирует временный код для привязки аккаунта.
-     * Старые не использованные коды этого пользователя аннулируются.
-     */
     @Transactional
     public String generateLinkCode(Long internalUserId, Platform issuerPlatform) {
-        // Аннулируем старые коды пользователя
         linkCodeRepository.deleteExpiredBefore(Instant.now());
-
         String code = generateUniqueCode();
-
         LinkCode linkCode = new LinkCode();
         linkCode.setCode(code);
         linkCode.setIssuerInternalUserId(internalUserId);
@@ -105,102 +71,51 @@ public class AccountLinkService {
         linkCode.setCreatedAt(Instant.now());
         linkCode.setExpiresAt(Instant.now().plus(LinkCode.EXPIRY_MINUTES, ChronoUnit.MINUTES));
         linkCodeRepository.save(linkCode);
-
         log.info("Link code generated: user={}, platform={}, code={}", internalUserId, issuerPlatform, code);
         return code;
     }
 
-    // ─── Применение кода ─────────────────────────────────────────────────────
-
     public enum LinkResult {
-        /** Аккаунты успешно объединены, прогресс слит (один из них был пустым). */
         LINKED_AUTO_MERGE,
-        /** Обнаружен конфликт прогресса — требуется выбор пользователя. */
         CONFLICT_NEEDS_CHOICE,
-        /** Эти аккаунты уже связаны. */
         ALREADY_LINKED,
-        /** Код не найден или истёк. */
         INVALID_CODE,
-        /** Попытка привязать аккаунт той же платформы. */
         SAME_PLATFORM,
-        /** Второй аккаунт уже привязан к другому мастер-аккаунту. */
         ALREADY_LINKED_ELSEWHERE
     }
 
-    /**
-     * Применяет код связывания.
-     *
-     * @param code             код, введённый пользователем
-     * @param receiverPlatform платформа, где пользователь вводит код
-     * @param receiverExternal externalUserId пользователя, который вводит код
-     * @return результат операции
-     */
     @Transactional
-    public LinkResult applyLinkCode(String code,
-                                    Platform receiverPlatform,
-                                    Long receiverExternal) {
+    public LinkResult applyLinkCode(String code, Platform receiverPlatform, Long receiverExternal) {
         Optional<LinkCode> codeOpt = linkCodeRepository.findByCodeAndUsedFalse(code.toUpperCase().trim());
         if (codeOpt.isEmpty()) return LinkResult.INVALID_CODE;
-
         LinkCode linkCode = codeOpt.get();
         if (linkCode.isExpired()) {
             linkCodeRepository.delete(linkCode);
             return LinkResult.INVALID_CODE;
         }
-
         if (linkCode.getIssuerPlatform() == receiverPlatform) {
             return LinkResult.SAME_PLATFORM;
         }
-
         Long issuerInternal = linkCode.getIssuerInternalUserId();
         Long receiverInternal = resolveInternalUserId(receiverPlatform, receiverExternal);
-
         if (issuerInternal.equals(receiverInternal)) {
             return LinkResult.ALREADY_LINKED;
         }
-
-        // Проверяем, не привязан ли receiver к кому-то другому
         List<LinkedAccount> receiverAccounts = linkedAccountRepository.findByInternalUserId(receiverInternal);
         if (receiverAccounts.size() > 1) {
             return LinkResult.ALREADY_LINKED_ELSEWHERE;
         }
-
-        // Проверяем конфликт прогресса
-
-        // Приоритет: Telegram всегда мастер
-        boolean isReceiverTelegram = receiverPlatform == Platform.TELEGRAM;
-        boolean isIssuerTelegram = linkCode.getIssuerPlatform() == Platform.TELEGRAM;
-        Long masterInternal;
-        Long slaveInternal;
-        if (isReceiverTelegram) {
-            masterInternal = receiverInternal;
-            slaveInternal = issuerInternal;
-        } else if (isIssuerTelegram) {
-            masterInternal = issuerInternal;
-            slaveInternal = receiverInternal;
-        } else {
-            boolean issuerHasProgress = userProgressRepository.existsByUserId(issuerInternal);
-            boolean receiverHasProgress = userProgressRepository.existsByUserId(receiverInternal);
-            if (issuerHasProgress && receiverHasProgress) {
-                return LinkResult.CONFLICT_NEEDS_CHOICE;
-            }
-            masterInternal = issuerHasProgress ? issuerInternal : receiverInternal;
-            slaveInternal = masterInternal.equals(issuerInternal) ? receiverInternal : issuerInternal;
+        boolean issuerHasProgress = userProgressRepository.existsByUserId(issuerInternal);
+        boolean receiverHasProgress = userProgressRepository.existsByUserId(receiverInternal);
+        if (issuerHasProgress && receiverHasProgress) {
+            return LinkResult.CONFLICT_NEEDS_CHOICE;
         }
+        Long masterInternal = issuerHasProgress ? issuerInternal : receiverInternal;
+        Long slaveInternal = masterInternal.equals(issuerInternal) ? receiverInternal : issuerInternal;
         mergeAccounts(masterInternal, slaveInternal, linkCode, receiverPlatform, receiverExternal);
         return LinkResult.LINKED_AUTO_MERGE;
-
     }
 
-    /**
-     * Завершает объединение при конфликте прогресса, когда пользователь выбрал мастер-аккаунт.
-     *
-     * @param keepInternal   internalUserId, чей прогресс сохранить
-     * @param discardInternal internalUserId, чей прогресс удалить
-     * @param code            исходный код связывания
-     * @param receiverPlatform платформа получателя кода
-     * @param receiverExternal externalUserId получателя
-     */
     @Transactional
     public void resolveConflict(Long keepInternal, Long discardInternal,
                                 String code, Platform receiverPlatform, Long receiverExternal) {
@@ -213,47 +128,50 @@ public class AccountLinkService {
         mergeAccounts(keepInternal, discardInternal, linkCode, receiverPlatform, receiverExternal);
     }
 
-    // ─── Внутренние методы ────────────────────────────────────────────────────
-
-    /**
-     * Объединяет два аккаунта: всё данные slave переносятся на master,
-     * затем slave-записи удаляются.
-     */
     private void mergeAccounts(Long masterInternal, Long slaveInternal,
                                LinkCode linkCode, Platform receiverPlatform, Long receiverExternal) {
+        // Используем единые блокировки для пользователей
+        Object masterLock = userLockService.getLock(masterInternal);
+        Object slaveLock = userLockService.getLock(slaveInternal);
+        synchronized (masterLock) {
+            synchronized (slaveLock) {
+                log.info("Merging accounts: master={}, slave={}", masterInternal, slaveInternal);
 
-        log.info("Merging accounts: master={}, slave={}", masterInternal, slaveInternal);
+                // Удаляем прогресс slave
+                userProgressRepository.deleteByUserId(slaveInternal);
+                userMistakeRepository.deleteByUserId(slaveInternal);
+                userStudyTimeRepository.deleteByUserId(slaveInternal);
+                userTestResultRepository.deleteByUserId(slaveInternal);
+                userSettingsRepository.deleteById(slaveInternal);
 
-        // 1. Удаляем прогресс slave (мастер уже имеет нужный прогресс или оба пустые)
-        userProgressRepository.deleteByUserId(slaveInternal);
-        userMistakeRepository.deleteByUserId(slaveInternal);
-        userStudyTimeRepository.deleteByUserId(slaveInternal);
-        userTestResultRepository.deleteByUserId(slaveInternal);
-        userSettingsRepository.deleteById(slaveInternal);
+                // Удаляем сессии master и slave, чтобы при следующем обращении создать чистые
+                userSessionRepository.deleteById(masterInternal);
+                userSessionRepository.deleteById(slaveInternal);
+                log.info("Deleted sessions for master {} and slave {}", masterInternal, slaveInternal);
 
-        // 2. Сессию slave удаляем, master не трогаем (оставляем его текущую сессию)
-        userSessionRepository.deleteById(slaveInternal);
-        log.info("Deleted session for slave {}", slaveInternal);
+                // Перепривязываем все LinkedAccount с slaveInternal на masterInternal
+                List<LinkedAccount> slaveAccounts = linkedAccountRepository.findByInternalUserId(slaveInternal);
+                for (LinkedAccount acc : slaveAccounts) {
+                    acc.setInternalUserId(masterInternal);
+                    linkedAccountRepository.save(acc);
+                }
 
-        // 3. Перепривязываем все LinkedAccount с slaveInternal на masterInternal
-        List<LinkedAccount> slaveAccounts = linkedAccountRepository.findByInternalUserId(slaveInternal);
-        for (LinkedAccount acc : slaveAccounts) {
-            acc.setInternalUserId(masterInternal);
-            linkedAccountRepository.save(acc);
+                // Убеждаемся, что запись receiverPlatform существует
+                boolean receiverAlreadyLinked = linkedAccountRepository
+                        .existsByPlatformAndExternalUserId(receiverPlatform, receiverExternal);
+                if (!receiverAlreadyLinked) {
+                    linkedAccountRepository.save(new LinkedAccount(masterInternal, receiverPlatform, receiverExternal));
+                }
+
+                linkCode.setUsed(true);
+                linkCodeRepository.save(linkCode);
+
+                log.info("Merge complete: all accounts now use internalUserId={}", masterInternal);
+            }
         }
-
-        // 4. Убеждаемся, что запись receiverPlatform существует
-        boolean receiverAlreadyLinked = linkedAccountRepository
-                .existsByPlatformAndExternalUserId(receiverPlatform, receiverExternal);
-        if (!receiverAlreadyLinked) {
-            linkedAccountRepository.save(new LinkedAccount(masterInternal, receiverPlatform, receiverExternal));
-        }
-
-        // 5. Помечаем код использованным
-        linkCode.setUsed(true);
-        linkCodeRepository.save(linkCode);
-
-        log.info("Merge complete: all accounts now use internalUserId={}", masterInternal);
+        // Опционально: удаляем блокировки из карты, чтобы не накапливались
+        userLockService.removeLock(masterInternal);
+        userLockService.removeLock(slaveInternal);
     }
 
     private String generateUniqueCode() {
@@ -268,9 +186,7 @@ public class AccountLinkService {
         return code;
     }
 
-    // ─── Плановая очистка ────────────────────────────────────────────────────
-
-    @Scheduled(fixedDelay = 600_000) // каждые 10 минут
+    @Scheduled(fixedDelay = 600_000)
     public void cleanExpiredCodes() {
         linkCodeRepository.deleteExpiredBefore(Instant.now());
     }

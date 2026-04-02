@@ -24,4 +24,10 @@ public interface UserStudyTimeRepository extends JpaRepository<UserStudyTime, Lo
     @Transactional
     @Query("DELETE FROM UserStudyTime ust WHERE ust.userId = :userId")
     void deleteByUserId(@Param("userId") Long userId);
+
+    @Modifying
+    @Transactional
+    @Query("DELETE FROM UserStudyTime ust WHERE ust.topic.id IN (SELECT t.id FROM Topic t WHERE t.section.course.id = :courseId)")
+    void deleteByCourseId(@Param("courseId") Long courseId);
+
 }

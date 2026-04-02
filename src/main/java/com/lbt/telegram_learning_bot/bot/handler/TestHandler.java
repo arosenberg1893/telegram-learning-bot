@@ -10,15 +10,14 @@ import com.lbt.telegram_learning_bot.repository.*;
 import com.lbt.telegram_learning_bot.service.NavigationService;
 import com.lbt.telegram_learning_bot.service.UserSessionService;
 import com.lbt.telegram_learning_bot.service.UserSettingsService;
-import com.pengrad.telegrambot.TelegramBot;
-
 
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 import static com.lbt.telegram_learning_bot.util.Constants.*;
 
@@ -31,6 +30,9 @@ public class TestHandler extends BaseHandler {
     private final UserMistakeRepository userMistakeRepository;
     private final UserTestResultRepository userTestResultRepository;
     private final CourseNavigationHandler courseNavHandler;
+
+    // Блокировки для синхронизации операций с одним пользователем
+    private final ConcurrentMap<Long, Object> userLocks = new ConcurrentHashMap<>();
 
     public TestHandler(MessageSender messageSender,
                        UserSessionService sessionService,
@@ -51,103 +53,171 @@ public class TestHandler extends BaseHandler {
         this.userTestResultRepository = userTestResultRepository;
         this.courseNavHandler = courseNavHandler;
     }
+
+    private Object getLock(Long userId) {
+        return userLocks.computeIfAbsent(userId, k -> new Object());
+    }
+
     // ================== Публичные методы для диспетчера ==================
     public void handleTestTopic(Long userId, Integer messageId, Long topicId) {
-        UserContext context = sessionService.getCurrentContext(userId);
-        context.setPreviousTopicPage(context.getCurrentPage()); // <-- сохраняем страницу тем
-        sessionService.updateSessionContext(userId, context);
-        List<Question> questions = navigationService.getAllQuestionsForTopic(topicId);
-        if (questions.isEmpty()) {
-            String text = MSG_TOPIC_NO_QUESTIONS;
-            if (messageId != null) {
-                editMessage(userId, messageId, text, createBackToMainKeyboard());
-            } else {
-                sendMessage(userId, text, createBackToMainKeyboard());
+        synchronized (getLock(userId)) {
+            UserContext context = sessionService.getCurrentContext(userId);
+            log.info("handleTestTopic START: correct={}, wrong={}, testQuestionIds.size={}, currentIndex={}",
+                    context.getCorrectAnswers(), context.getWrongAnswers(),
+                    context.getTestQuestionIds().size(), context.getCurrentTestQuestionIndex());
+
+            context.setPreviousTopicPage(context.getCurrentPage());
+            sessionService.updateSessionContext(userId, context);
+
+            // Принудительный сброс старых тестовых данных
+            context.setTestMode(false);
+            context.setTestQuestionIds(new ArrayList<>());
+            context.setTestType(null);
+            context.setCurrentTestQuestionIndex(0);
+            context.setCorrectAnswers(0);
+            context.setWrongAnswers(0);
+            sessionService.updateSessionContext(userId, context);
+            log.info("handleTestTopic: cleared old test context");
+
+            // Принудительно перечитываем контекст, чтобы убедиться, что сброс применился
+            context = sessionService.getCurrentContext(userId);
+
+            List<Question> questions = navigationService.getAllQuestionsForTopic(topicId);
+            log.info("handleTestTopic: topicId={}, questions.size={}", topicId, questions.size());
+
+            if (questions.isEmpty()) {
+                String text = MSG_TOPIC_NO_QUESTIONS;
+                if (messageId != null) {
+                    editMessage(userId, messageId, text, createBackToMainKeyboard());
+                } else {
+                    sendMessage(userId, text, createBackToMainKeyboard());
+                }
+                return;
             }
-            return;
+
+            questions = new ArrayList<>(questions);
+            Collections.shuffle(questions);
+            initTestContext(context, TEST_TYPE_TOPIC, questions);
+            context.setCurrentTopicId(topicId);
+
+            log.info("After initTestContext: correct={}, wrong={}, testQuestionIds.size={}, currentIndex={}",
+                    context.getCorrectAnswers(), context.getWrongAnswers(),
+                    context.getTestQuestionIds().size(), context.getCurrentTestQuestionIndex());
+
+            sessionService.updateSession(userId, BotState.QUESTION, context);
+
+            // Принудительно перечитываем контекст после сохранения
+            context = sessionService.getCurrentContext(userId);
+            log.info("After updateSession: correct={}, wrong={}, testQuestionIds.size={}, currentIndex={}",
+                    context.getCorrectAnswers(), context.getWrongAnswers(),
+                    context.getTestQuestionIds().size(), context.getCurrentTestQuestionIndex());
+
+            navigationService.getQuestionWithImagesAndOptions(questions.get(0).getId())
+                    .ifPresent(question -> showTestQuestion(userId, messageId, question));
         }
-        questions = new ArrayList<>(questions);
-        Collections.shuffle(questions);
-        initTestContext(context, TEST_TYPE_TOPIC, questions);
-        context.setCurrentTopicId(topicId);
-        sessionService.updateSession(userId, BotState.QUESTION, context);
-        navigationService.getQuestionWithImagesAndOptions(questions.get(0).getId())
-                .ifPresent(question -> showTestQuestion(userId, messageId, question));
     }
 
     public void handleTestSection(Long userId, Integer messageId, Long sectionId) {
-        UserContext context = sessionService.getCurrentContext(userId);
-        context.setPreviousSectionPage(context.getCurrentPage()); // <-- сохраняем страницу разделов
-        sessionService.updateSessionContext(userId, context);
-        UserSettings settings = userSettingsService.getSettings(userId);
-        int questionsPerBlock = settings.getTestQuestionsPerBlock();
-        List<Question> questions = navigationService.getRandomQuestionsForSection(sectionId, questionsPerBlock);
-        if (questions.isEmpty()) {
-            String text = MSG_SECTION_NO_QUESTIONS;
-            if (messageId != null) {
-                editMessage(userId, messageId, text, createBackToMainKeyboard());
-            } else {
-                sendMessage(userId, text, createBackToMainKeyboard());
+        synchronized (getLock(userId)) {
+            UserContext context = sessionService.getCurrentContext(userId);
+            context.setPreviousSectionPage(context.getCurrentPage());
+            sessionService.updateSessionContext(userId, context);
+
+            UserSettings settings = userSettingsService.getSettings(userId);
+            int questionsPerBlock = settings.getTestQuestionsPerBlock();
+            List<Question> questions = navigationService.getRandomQuestionsForSection(sectionId, questionsPerBlock);
+
+            if (questions.isEmpty()) {
+                String text = MSG_SECTION_NO_QUESTIONS;
+                if (messageId != null) {
+                    editMessage(userId, messageId, text, createBackToMainKeyboard());
+                } else {
+                    sendMessage(userId, text, createBackToMainKeyboard());
+                }
+                return;
             }
-            return;
+
+            questions = new ArrayList<>(questions);
+            Collections.shuffle(questions);
+            initTestContext(context, TEST_TYPE_SECTION, questions);
+            context.setCurrentSectionId(sectionId);
+            sessionService.updateSession(userId, BotState.QUESTION, context);
+
+            context = sessionService.getCurrentContext(userId);
+            log.info("After updateSession: correct={}, wrong={}, testQuestionIds.size={}, currentIndex={}",
+                    context.getCorrectAnswers(), context.getWrongAnswers(),
+                    context.getTestQuestionIds().size(), context.getCurrentTestQuestionIndex());
+
+            navigationService.getQuestionWithImagesAndOptions(questions.get(0).getId())
+                    .ifPresent(question -> showTestQuestion(userId, messageId, question));
         }
-        questions = new ArrayList<>(questions);
-        Collections.shuffle(questions);
-        initTestContext(context, TEST_TYPE_SECTION, questions);
-        context.setCurrentSectionId(sectionId);
-        sessionService.updateSession(userId, BotState.QUESTION, context);
-        navigationService.getQuestionWithImagesAndOptions(questions.get(0).getId())
-                .ifPresent(question -> showTestQuestion(userId, messageId, question));
     }
 
     public void handleTestCourse(Long userId, Integer messageId, Long courseId) {
-        UserContext context = sessionService.getCurrentContext(userId);
-        context.setPreviousCoursesPage(context.getCurrentPage()); // <-- сохраняем страницу курсов
-        sessionService.updateSessionContext(userId, context);
-        UserSettings settings = userSettingsService.getSettings(userId);
-        int questionsPerTopic = settings.getTestQuestionsPerBlock();
-        List<Question> questions = navigationService.getRandomQuestionsForCourse(courseId, questionsPerTopic);
-        if (questions.isEmpty()) {
-            String text = MSG_COURSE_NO_QUESTIONS;
-            if (messageId != null) {
-                editMessage(userId, messageId, text, createBackToMainKeyboard());
-            } else {
-                sendMessage(userId, text, createBackToMainKeyboard());
+        synchronized (getLock(userId)) {
+            UserContext context = sessionService.getCurrentContext(userId);
+            context.setPreviousCoursesPage(context.getCurrentPage());
+            sessionService.updateSessionContext(userId, context);
+
+            UserSettings settings = userSettingsService.getSettings(userId);
+            int questionsPerTopic = settings.getTestQuestionsPerBlock();
+            List<Question> questions = navigationService.getRandomQuestionsForCourse(courseId, questionsPerTopic);
+
+            if (questions.isEmpty()) {
+                String text = MSG_COURSE_NO_QUESTIONS;
+                if (messageId != null) {
+                    editMessage(userId, messageId, text, createBackToMainKeyboard());
+                } else {
+                    sendMessage(userId, text, createBackToMainKeyboard());
+                }
+                return;
             }
-            return;
+
+            questions = new ArrayList<>(questions);
+            Collections.shuffle(questions);
+            initTestContext(context, TEST_TYPE_COURSE, questions);
+            context.setCurrentCourseId(courseId);
+            context.setPreviousMenuState(sessionService.getCurrentState(userId).name());
+            sessionService.updateSession(userId, BotState.QUESTION, context);
+
+            context = sessionService.getCurrentContext(userId);
+            log.info("After updateSession: correct={}, wrong={}, testQuestionIds.size={}, currentIndex={}",
+                    context.getCorrectAnswers(), context.getWrongAnswers(),
+                    context.getTestQuestionIds().size(), context.getCurrentTestQuestionIndex());
+
+            navigationService.getQuestionWithImagesAndOptions(questions.get(0).getId())
+                    .ifPresent(question -> showTestQuestion(userId, messageId, question));
         }
-        questions = new ArrayList<>(questions);
-        Collections.shuffle(questions);
-        initTestContext(context, TEST_TYPE_COURSE, questions);
-        context.setCurrentCourseId(courseId);
-        context.setPreviousMenuState(sessionService.getCurrentState(userId).name());
-        sessionService.updateSession(userId, BotState.QUESTION, context);
-        navigationService.getQuestionWithImagesAndOptions(questions.get(0).getId())
-                .ifPresent(question -> showTestQuestion(userId, messageId, question));
     }
 
     public void handleMyMistakes(Long userId, Integer messageId) {
-        List<Question> questions = navigationService.getMistakeQuestions(userId);
-        if (questions.isEmpty()) {
-            String text = MSG_NO_MISTAKES;
-            if (messageId != null) {
-                editMessage(userId, messageId, text, createBackToMainKeyboard());
-            } else {
-                sendMessage(userId, text, createBackToMainKeyboard());
+        synchronized (getLock(userId)) {
+            List<Question> questions = navigationService.getMistakeQuestions(userId);
+            if (questions.isEmpty()) {
+                String text = MSG_NO_MISTAKES;
+                if (messageId != null) {
+                    editMessage(userId, messageId, text, createBackToMainKeyboard());
+                } else {
+                    sendMessage(userId, text, createBackToMainKeyboard());
+                }
+                return;
             }
-            return;
+
+            Collections.shuffle(questions);
+            UserContext context = sessionService.getCurrentContext(userId);
+            initTestContext(context, TEST_TYPE_MISTAKE, questions);
+            sessionService.updateSession(userId, BotState.QUESTION, context);
+
+            context = sessionService.getCurrentContext(userId);
+            log.info("After updateSession: correct={}, wrong={}, testQuestionIds.size={}, currentIndex={}",
+                    context.getCorrectAnswers(), context.getWrongAnswers(),
+                    context.getTestQuestionIds().size(), context.getCurrentTestQuestionIndex());
+
+            navigationService.getQuestionWithImagesAndOptions(questions.get(0).getId())
+                    .ifPresent(question -> showTestQuestion(userId, messageId, question));
         }
-        Collections.shuffle(questions);
-        UserContext context = sessionService.getCurrentContext(userId);
-        initTestContext(context, TEST_TYPE_MISTAKE, questions);
-        sessionService.updateSession(userId, BotState.QUESTION, context);
-        navigationService.getQuestionWithImagesAndOptions(questions.get(0).getId())
-                .ifPresent(question -> showTestQuestion(userId, messageId, question));
     }
 
-    /**
-     * Общий метод инициализации состояния теста в контексте пользователя.
-     */
     private void initTestContext(UserContext context, String testType, List<Question> questions) {
         context.setTestMode(true);
         context.setTestType(testType);
@@ -155,6 +225,10 @@ public class TestHandler extends BaseHandler {
         context.setCurrentTestQuestionIndex(0);
         context.setCorrectAnswers(0);
         context.setWrongAnswers(0);
+        log.info("initTestContext: testType={}, questions.size={}", testType, questions.size());
+        for (Question q : questions) {
+            log.debug("initTestContext: question id={}", q.getId());
+        }
     }
 
     private void updateAfterAnswer(Long userId, Long questionId, boolean correct, UserContext context) {
@@ -170,56 +244,80 @@ public class TestHandler extends BaseHandler {
         }
         sessionService.updateSessionContext(userId, context);
     }
+
     private boolean isLastInCurrentMode(UserContext context) {
         if (context.isTestMode()) {
             List<Long> questionIds = context.getTestQuestionIds();
             int currentIdx = context.getCurrentTestQuestionIndex();
             return currentIdx == questionIds.size() - 1;
         } else {
-            Long currentBlockId = context.getCurrentTopicBlockIds().get(context.getCurrentBlockIndex());
+            List<Long> blockIds = context.getCurrentTopicBlockIds();
+            if (blockIds == null || blockIds.isEmpty()) {
+                log.warn("isLastInCurrentMode: currentTopicBlockIds is empty in non-test mode, treating as last");
+                return true;
+            }
+            Long currentBlockId = blockIds.get(context.getCurrentBlockIndex());
             List<Question> blockQuestions = navigationService.getQuestionsForBlock(currentBlockId);
             int currentQIdx = context.getCurrentBlockQuestionIndex();
             return currentQIdx == blockQuestions.size() - 1;
         }
     }
+
     public void handleAnswer(Long userId, Integer messageId, Long questionId, Long answerOptionId) {
-        UserContext context = sessionService.getCurrentContext(userId);
+        synchronized (getLock(userId)) {
+            UserContext context = sessionService.getCurrentContext(userId);
+            log.info("handleAnswer START: testMode={}, testQuestionIds.size={}, currentIndex={}, correct={}, wrong={}",
+                    context.isTestMode(), context.getTestQuestionIds().size(),
+                    context.getCurrentTestQuestionIndex(), context.getCorrectAnswers(), context.getWrongAnswers());
+            log.info("handleAnswer: userId={}, testMode={}, questionId={}, answerOptionId={}, currentIndex={}, totalQuestions={}",
+                    userId, context.isTestMode(), questionId, answerOptionId,
+                    context.getCurrentTestQuestionIndex(), context.getTestQuestionIds().size());
 
-        AnswerOption selected = processAnswerSelection(questionId, answerOptionId);
-        if (selected == null) {
-            sendErrorMessage(userId, messageId);
-            return;
-        }
+            // Guard: защита от повреждённого контекста сессии.
+            // Возможная причина: сессия была сброшена при слиянии аккаунтов — пользователь должен начать тест заново.
+            if (context.isTestMode() && context.getTestQuestionIds().isEmpty()) {
+                log.warn("handleAnswer: testMode=true but testQuestionIds empty for user {} — session was reset, asking to retry", userId);
+                sendStaleContextMessage(userId, messageId);
+                return;
+            }
+            if (!context.isTestMode() && (context.getCurrentTopicBlockIds() == null || context.getCurrentTopicBlockIds().isEmpty())) {
+                log.warn("handleAnswer: testMode=false but currentTopicBlockIds empty for user {} — session was reset, asking to retry", userId);
+                sendStaleContextMessage(userId, messageId);
+                return;
+            }
 
-        boolean correct = selected.getIsCorrect();
-        updateAfterAnswer(userId, questionId, correct, context);
+            AnswerOption selected = processAnswerSelection(questionId, answerOptionId);
+            if (selected == null) {
+                sendErrorMessage(userId, messageId);
+                return;
+            }
 
-        boolean isLast = isLastInCurrentMode(context);
+            boolean correct = selected.getIsCorrect();
+            updateAfterAnswer(userId, questionId, correct, context);
 
-        if (context.isTestMode()) {
-            if (correct) {
-                if (isLast) {
-                    // Правильный ответ на последний вопрос – сразу статистика
-                    showTestSummary(userId, messageId);
+            boolean isLast = isLastInCurrentMode(context);
+
+            if (context.isTestMode()) {
+                if (correct) {
+                    if (isLast) {
+                        showTestSummary(userId, messageId);
+                    } else {
+                        handleNextQuestion(userId, messageId);
+                    }
                 } else {
-                    // Правильный ответ – сразу следующий вопрос
-                    handleNextQuestion(userId, messageId);
+                    String resultText = buildResultText(userId, context, correct, isLast);
+                    BotKeyboard keyboard = buildResultKeyboardAfterWrongBot(context, isLast);
+                    sendOrEditResult(userId, messageId, resultText, keyboard);
                 }
             } else {
-                // Неправильный ответ – показываем пояснение (с кнопкой "Далее")
                 String resultText = buildResultText(userId, context, correct, isLast);
-                BotKeyboard keyboard = buildResultKeyboardAfterWrongBot(context, isLast);
+                BotKeyboard keyboard = buildResultKeyboardBot(context, isLast);
                 sendOrEditResult(userId, messageId, resultText, keyboard);
             }
-        } else {
-            // Учебный режим – без изменений
-            String resultText = buildResultText(userId, context, correct, isLast);
-            BotKeyboard keyboard = buildResultKeyboardBot(context, isLast);
-            sendOrEditResult(userId, messageId, resultText, keyboard);
-        }
 
-        if (context.getCurrentTopicId() != null && !context.isTestMode()) {
-            navigationService.recordStudyAction(userId, context.getCurrentTopicId());
+            if (context.getCurrentTopicId() != null && !context.isTestMode()) {
+                navigationService.recordStudyAction(userId, context.getCurrentTopicId());
+            }
         }
     }
 
@@ -249,6 +347,7 @@ public class TestHandler extends BaseHandler {
             return resultText;
         }
     }
+
     private void showTestSummary(Long userId, Integer messageId) {
         UserContext context = sessionService.getCurrentContext(userId);
         saveTestResultIfNeeded(userId, context);
@@ -259,6 +358,7 @@ public class TestHandler extends BaseHandler {
         BotKeyboard keyboard = new BotKeyboard().addRow(BotButton.callback(BUTTON_COMPLETE, backCallbackData));
         sendOrEditResult(userId, messageId, stats, keyboard);
     }
+
     private BotKeyboard buildResultKeyboardBot(UserContext context, boolean isLast) {
         if (context.isTestMode()) {
             if (isLast) {
@@ -268,9 +368,15 @@ public class TestHandler extends BaseHandler {
             }
         } else {
             if (isLast) {
-                return new BotKeyboard().addRow(BotButton.callback(BUTTON_NEXT, CALLBACK_NEXT_BLOCK)).addRow(BotButton.callback(BUTTON_BACK_TO_TEXT, CALLBACK_BACK_TO_BLOCK_TEXT)).addRow(BotButton.callback(BUTTON_EXIT_TOPIC, CALLBACK_BACK_TO_TOPICS));
+                return new BotKeyboard()
+                        .addRow(BotButton.callback(BUTTON_NEXT, CALLBACK_NEXT_BLOCK))
+                        .addRow(BotButton.callback(BUTTON_BACK_TO_TEXT, CALLBACK_BACK_TO_BLOCK_TEXT))
+                        .addRow(BotButton.callback(BUTTON_EXIT_TOPIC, CALLBACK_BACK_TO_TOPICS));
             } else {
-                return new BotKeyboard().addRow(BotButton.callback(BUTTON_NEXT, CALLBACK_NEXT_QUESTION)).addRow(BotButton.callback(BUTTON_BACK_TO_TEXT, CALLBACK_PREV_QUESTION)).addRow(BotButton.callback(BUTTON_EXIT_TOPIC, CALLBACK_BACK_TO_TOPICS));
+                return new BotKeyboard()
+                        .addRow(BotButton.callback(BUTTON_NEXT, CALLBACK_NEXT_QUESTION))
+                        .addRow(BotButton.callback(BUTTON_BACK_TO_TEXT, CALLBACK_PREV_QUESTION))
+                        .addRow(BotButton.callback(BUTTON_EXIT_TOPIC, CALLBACK_BACK_TO_TOPICS));
             }
         }
     }
@@ -287,6 +393,7 @@ public class TestHandler extends BaseHandler {
             return CALLBACK_BACK_TO_TOPICS;
         }
     }
+
     private void sendOrEditResult(Long userId, Integer messageId, String text, BotKeyboard keyboard) {
         if (messageId != null) {
             editMessage(userId, messageId, text, keyboard);
@@ -294,6 +401,7 @@ public class TestHandler extends BaseHandler {
             sendMessage(userId, text, keyboard);
         }
     }
+
     private void sendErrorMessage(Long userId, Integer messageId) {
         if (messageId != null) {
             editMessage(userId, messageId, MSG_WRONG_OPTION, createBackToMainKeyboard());
@@ -301,11 +409,17 @@ public class TestHandler extends BaseHandler {
             sendMessage(userId, MSG_WRONG_OPTION, createBackToMainKeyboard());
         }
     }
+
+    private void sendStaleContextMessage(Long userId, Integer messageId) {
+        String text = "⚠️ Сессия устарела (возможно, был сброс после связывания аккаунтов). Пожалуйста, вернитесь к теме и начните тест заново.";
+        if (messageId != null) {
+            editMessage(userId, messageId, text, createBackToMainKeyboard());
+        } else {
+            sendMessage(userId, text, createBackToMainKeyboard());
+        }
+    }
+
     private String getExplanationForCurrentQuestion(UserContext context) {
-        // Получаем текущий вопрос (нужно либо передавать question, либо доставать из БД)
-        // Здесь проще передавать Question как параметр, но для упрощения можно получать заново.
-        // Лучше передавать question из основного метода, но тогда сигнатуры изменятся.
-        // Я покажу вариант с получением через сервис.
         Long questionId = getCurrentQuestionId(context);
         return navigationService.getQuestion(questionId)
                 .map(Question::getExplanation)
@@ -319,6 +433,7 @@ public class TestHandler extends BaseHandler {
             return context.getCurrentBlockQuestionIds().get(context.getCurrentBlockQuestionIndex());
         }
     }
+
     private AnswerOption processAnswerSelection(Long questionId, Long answerOptionId) {
         List<AnswerOption> options = navigationService.getAnswerOptionsForQuestion(questionId);
         return options.stream()
@@ -328,7 +443,6 @@ public class TestHandler extends BaseHandler {
     }
 
     private BotKeyboard buildResultKeyboardAfterWrongBot(UserContext context, boolean isLast) {
-        // После неправильного ответа всегда показываем кнопку "Далее" к следующему вопросу или итогам
         return new BotKeyboard().addRow(BotButton.callback(BUTTON_NEXT, CALLBACK_NEXT_QUESTION));
     }
 
@@ -349,103 +463,102 @@ public class TestHandler extends BaseHandler {
     }
 
     public void handleNextQuestion(Long userId, Integer messageId) {
-        UserContext context = sessionService.getCurrentContext(userId);
-        if (context.isTestMode()) {
-            List<Long> questionIds = context.getTestQuestionIds();
-            int currentIdx = context.getCurrentTestQuestionIndex();
-            if (currentIdx + 1 < questionIds.size()) {
-                // Есть следующий вопрос
-                context.setCurrentTestQuestionIndex(currentIdx + 1);
-                sessionService.updateSessionContext(userId, context);
-                navigationService.getQuestionWithImagesAndOptions(questionIds.get(currentIdx + 1))
-                        .ifPresent(question -> showTestQuestion(userId, messageId, question));
-            } else {
-                // Это был последний вопрос – показываем статистику
-                showTestSummary(userId, messageId);
-            }
-        } else {
-            Long currentBlockId = context.getCurrentTopicBlockIds().get(context.getCurrentBlockIndex());
-            List<Question> questions = navigationService.getQuestionsForBlock(currentBlockId);
-            if (context.getCurrentBlockQuestionIndex() == -1) {
-                // Пользователь нажал "К вопросам"
-                if (!questions.isEmpty()) {
-                    context.setCurrentBlockQuestionIndex(0);
+        synchronized (getLock(userId)) {
+            UserContext context = sessionService.getCurrentContext(userId);
+            if (context.isTestMode()) {
+                List<Long> questionIds = context.getTestQuestionIds();
+                int currentIdx = context.getCurrentTestQuestionIndex();
+                if (currentIdx + 1 < questionIds.size()) {
+                    context.setCurrentTestQuestionIndex(currentIdx + 1);
                     sessionService.updateSessionContext(userId, context);
-                    navigationService.getQuestionWithImagesAndOptions(questions.get(0).getId())
+                    navigationService.getQuestionWithImagesAndOptions(questionIds.get(currentIdx + 1))
                             .ifPresent(question -> showTestQuestion(userId, messageId, question));
                 } else {
-                    // Блок без вопросов – переходим к следующему блоку
-                    courseNavHandler.handleNextBlock(userId, messageId);
+                    showTestSummary(userId, messageId);
                 }
             } else {
-                int nextIdx = context.getCurrentBlockQuestionIndex() + 1;
-                if (nextIdx < questions.size()) {
-                    context.setCurrentBlockQuestionIndex(nextIdx);
-                    sessionService.updateSessionContext(userId, context);
-                    navigationService.getQuestionWithImagesAndOptions(questions.get(nextIdx).getId())
-                            .ifPresent(question -> showTestQuestion(userId, messageId, question));
+                Long currentBlockId = context.getCurrentTopicBlockIds().get(context.getCurrentBlockIndex());
+                List<Question> questions = navigationService.getQuestionsForBlock(currentBlockId);
+                if (context.getCurrentBlockQuestionIndex() == -1) {
+                    if (!questions.isEmpty()) {
+                        context.setCurrentBlockQuestionIndex(0);
+                        sessionService.updateSessionContext(userId, context);
+                        navigationService.getQuestionWithImagesAndOptions(questions.get(0).getId())
+                                .ifPresent(question -> showTestQuestion(userId, messageId, question));
+                    } else {
+                        courseNavHandler.handleNextBlock(userId, messageId);
+                    }
                 } else {
-                    // Достигнут конец блока – переходим к следующему блоку
-                    courseNavHandler.handleNextBlock(userId, messageId);
+                    int nextIdx = context.getCurrentBlockQuestionIndex() + 1;
+                    if (nextIdx < questions.size()) {
+                        context.setCurrentBlockQuestionIndex(nextIdx);
+                        sessionService.updateSessionContext(userId, context);
+                        navigationService.getQuestionWithImagesAndOptions(questions.get(nextIdx).getId())
+                                .ifPresent(question -> showTestQuestion(userId, messageId, question));
+                    } else {
+                        courseNavHandler.handleNextBlock(userId, messageId);
+                    }
                 }
             }
         }
     }
 
     public void handlePrevQuestion(Long userId, Integer messageId) {
-        UserContext context = sessionService.getCurrentContext(userId);
-        if (context.isTestMode()) {
-            List<Long> questionIds = context.getTestQuestionIds();
-            int currentIdx = context.getCurrentTestQuestionIndex();
-            if (currentIdx - 1 >= 0) {
-                context.setCurrentTestQuestionIndex(currentIdx - 1);
-                sessionService.updateSessionContext(userId, context);
-                navigationService.getQuestionWithImagesAndOptions(questionIds.get(currentIdx - 1))
-                        .ifPresent(question -> showTestQuestion(userId, messageId, question));
-            } else {
-                // Первый вопрос теста – возвращаемся к соответствующему меню
-                String testType = context.getTestType();
-                if (TEST_TYPE_SECTION.equals(testType)) {
-                    courseNavHandler.handleBackToSections(userId, messageId);
-                } else if (TEST_TYPE_COURSE.equals(testType)) {
-                    courseNavHandler.handleBackToCourses(userId, messageId);
-                } else {
-                    courseNavHandler.handleBackToTopics(userId, messageId);
-                }
-            }
-        } else {
-            Long currentBlockId = context.getCurrentTopicBlockIds().get(context.getCurrentBlockIndex());
-            List<Question> questions = navigationService.getQuestionsForBlock(currentBlockId);
-            if (context.getCurrentBlockQuestionIndex() == -1) {
-                // Уже на тексте блока, нажатие "Назад" должно перейти к предыдущему блоку
-                courseNavHandler.handlePrevBlock(userId, messageId);
-            } else {
-                int prevIdx = context.getCurrentBlockQuestionIndex() - 1;
-                if (prevIdx >= 0) {
-                    context.setCurrentBlockQuestionIndex(prevIdx);
+        synchronized (getLock(userId)) {
+            UserContext context = sessionService.getCurrentContext(userId);
+            if (context.isTestMode()) {
+                List<Long> questionIds = context.getTestQuestionIds();
+                int currentIdx = context.getCurrentTestQuestionIndex();
+                if (currentIdx - 1 >= 0) {
+                    context.setCurrentTestQuestionIndex(currentIdx - 1);
                     sessionService.updateSessionContext(userId, context);
-                    navigationService.getQuestionWithImagesAndOptions(questions.get(prevIdx).getId())
+                    navigationService.getQuestionWithImagesAndOptions(questionIds.get(currentIdx - 1))
                             .ifPresent(question -> showTestQuestion(userId, messageId, question));
                 } else {
-                    // Возвращаемся к тексту блока
-                    context.setCurrentBlockQuestionIndex(-1);
-                    sessionService.updateSessionContext(userId, context);
-                    courseNavHandler.showBlockContent(userId, messageId, currentBlockId); // нужно сделать метод public
+                    String testType = context.getTestType();
+                    if (TEST_TYPE_SECTION.equals(testType)) {
+                        courseNavHandler.handleBackToSections(userId, messageId);
+                    } else if (TEST_TYPE_COURSE.equals(testType)) {
+                        courseNavHandler.handleBackToCourses(userId, messageId);
+                    } else {
+                        courseNavHandler.handleBackToTopics(userId, messageId);
+                    }
+                }
+            } else {
+                Long currentBlockId = context.getCurrentTopicBlockIds().get(context.getCurrentBlockIndex());
+                List<Question> questions = navigationService.getQuestionsForBlock(currentBlockId);
+                if (context.getCurrentBlockQuestionIndex() == -1) {
+                    courseNavHandler.handlePrevBlock(userId, messageId);
+                } else {
+                    int prevIdx = context.getCurrentBlockQuestionIndex() - 1;
+                    if (prevIdx >= 0) {
+                        context.setCurrentBlockQuestionIndex(prevIdx);
+                        sessionService.updateSessionContext(userId, context);
+                        navigationService.getQuestionWithImagesAndOptions(questions.get(prevIdx).getId())
+                                .ifPresent(question -> showTestQuestion(userId, messageId, question));
+                    } else {
+                        context.setCurrentBlockQuestionIndex(-1);
+                        sessionService.updateSessionContext(userId, context);
+                        courseNavHandler.showBlockContent(userId, messageId, currentBlockId);
+                    }
                 }
             }
         }
     }
 
     public void handleBackToBlockText(Long userId, Integer messageId) {
-        UserContext context = sessionService.getCurrentContext(userId);
-        Long currentBlockId = context.getCurrentTopicBlockIds().get(context.getCurrentBlockIndex());
-        context.setCurrentBlockQuestionIndex(-1);
-        sessionService.updateSessionContext(userId, context);
-        courseNavHandler.showBlockContent(userId, messageId, currentBlockId);
+        synchronized (getLock(userId)) {
+            UserContext context = sessionService.getCurrentContext(userId);
+            Long currentBlockId = context.getCurrentTopicBlockIds().get(context.getCurrentBlockIndex());
+            context.setCurrentBlockQuestionIndex(-1);
+            sessionService.updateSessionContext(userId, context);
+            courseNavHandler.showBlockContent(userId, messageId, currentBlockId);
+        }
     }
 
     // ================== Внутренние методы ==================
     private void showTestQuestion(Long userId, Integer messageId, Question question) {
+        // Этот метод вызывается только из синхронизированных методов, поэтому дополнительная блокировка не нужна
         UserContext context = sessionService.getCurrentContext(userId);
         String backCallbackData;
         int currentNumber;
@@ -456,10 +569,8 @@ public class TestHandler extends BaseHandler {
             totalQuestions = context.getTestQuestionIds().size();
 
             if (currentNumber == 1) {
-                // Первый вопрос – возврат в меню (список курсов/разделов/тем)
                 backCallbackData = getBackCallbackData(context);
             } else {
-                // Второй и последующие – переход к предыдущему вопросу
                 backCallbackData = CALLBACK_PREV_QUESTION;
             }
         } else {

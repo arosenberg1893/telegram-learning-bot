@@ -11,9 +11,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.ArrayList;
-import com.lbt.telegram_learning_bot.platform.BotButton;
-import com.lbt.telegram_learning_bot.platform.BotKeyboard;
 
 @Slf4j
 @Service
@@ -22,6 +21,9 @@ public class UserSessionService {
 
     private final UserSessionRepository sessionRepository;
     private final ObjectMapper objectMapper;
+    // UserLockService инжектируется для совместимости; блокировка выполняется на уровне обработчиков (handlers)
+    @SuppressWarnings("unused")
+    private final UserLockService userLockService;
 
     @Transactional
     public UserSession getOrCreateSession(Long userId) {
@@ -31,6 +33,7 @@ public class UserSessionService {
                     newSession.setUserId(userId);
                     newSession.setState(BotState.MAIN_MENU.name());
                     newSession.setContext("{}");
+                    newSession.setUpdatedAt(Instant.now());
                     return sessionRepository.save(newSession);
                 });
     }
@@ -39,6 +42,7 @@ public class UserSessionService {
     public void updateSessionState(Long userId, BotState state) {
         UserSession session = getOrCreateSession(userId);
         session.setState(state.name());
+        session.setUpdatedAt(Instant.now());
         sessionRepository.save(session);
     }
 
@@ -48,6 +52,7 @@ public class UserSessionService {
             String json = objectMapper.writeValueAsString(context);
             UserSession session = getOrCreateSession(userId);
             session.setContext(json);
+            session.setUpdatedAt(Instant.now());
             sessionRepository.save(session);
         } catch (JsonProcessingException e) {
             log.error("Failed to serialize user context for user {}", userId, e);
@@ -61,6 +66,7 @@ public class UserSessionService {
             UserSession session = getOrCreateSession(userId);
             session.setState(state.name());
             session.setContext(json);
+            session.setUpdatedAt(Instant.now());
             sessionRepository.save(session);
         } catch (JsonProcessingException e) {
             log.error("Failed to serialize user context for user {}", userId, e);
@@ -91,12 +97,13 @@ public class UserSessionService {
                         return new UserContext();
                     }
                 })
-                .orElse(new UserContext());
+                .orElseGet(() -> {
+                    UserContext ctx = new UserContext();
+                    initializeCollections(ctx);
+                    return ctx;
+                });
     }
 
-    /**
-     * Инициализирует коллекции в контексте, чтобы избежать NPE при десериализации.
-     */
     private void initializeCollections(UserContext ctx) {
         if (ctx.getPendingImages() == null) ctx.setPendingImages(new ArrayList<>());
         if (ctx.getTestQuestionIds() == null) ctx.setTestQuestionIds(new ArrayList<>());

@@ -723,7 +723,12 @@ public class NavigationService {
     @Transactional
     public void updateCourseLastAccessedOnExit(Long userId, Long courseId) {
         if (courseId == null) return;
-        List<UserProgress> progressList = userProgressRepository
+        
+        // Проверяем, существует ли курс
+        if (!courseRepository.existsById(courseId)) {
+            log.warn("Course {} does not exist, skipping last accessed update", courseId);
+            return;
+        }List<UserProgress> progressList = userProgressRepository
                 .findByUserIdAndCourseIdAndBlockIsNullAndQuestionIsNullOrderByLastAccessedAtDesc(userId, courseId);
         UserProgress progress = progressList.isEmpty() ? null : progressList.get(0);
         if (progress == null) {
