@@ -452,12 +452,13 @@ public class TestHandler extends BaseHandler {
                         .ifPresent(question -> showTestQuestion(userId, messageId, question));
             } else {
                 String testType = context.getTestType();
+                int pageSize = userSettingsService.getSettings(userId).getPageSize();
                 if (TEST_TYPE_SECTION.equals(testType)) {
-                    courseNavHandler.handleBackToSections(userId, messageId);
+                    courseNavHandler.handleBackToSections(userId, messageId, pageSize);
                 } else if (TEST_TYPE_COURSE.equals(testType)) {
-                    courseNavHandler.handleBackToCourses(userId, messageId);
+                    courseNavHandler.handleBackToCourses(userId, messageId, pageSize);
                 } else {
-                    courseNavHandler.handleBackToTopics(userId, messageId);
+                    courseNavHandler.handleBackToTopics(userId, messageId, pageSize);
                 }
             }
         } else {

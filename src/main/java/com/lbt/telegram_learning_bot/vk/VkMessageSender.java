@@ -137,13 +137,19 @@ public class VkMessageSender implements MessageSender {
             for (List<BotButton> row : keyboard.getRows()) {
                 List<Map<String, Object>> vkRow = new ArrayList<>();
                 for (BotButton btn : row) {
+                    // Обрезаем label до 40 символов для VK
+                    String label = btn.label();
+                    if (label.length() > 40) {
+                        label = label.substring(0, 37) + "...";
+                    }
+
                     Map<String, String> payloadMap = new HashMap<>();
                     payloadMap.put("callback", btn.callbackData());
                     String payloadJson = objectMapper.writeValueAsString(payloadMap);
 
                     Map<String, Object> action = new LinkedHashMap<>();
                     action.put("type", "callback");
-                    action.put("label", btn.label());
+                    action.put("label", label);
                     action.put("payload", payloadJson);
 
                     Map<String, Object> button = new LinkedHashMap<>();

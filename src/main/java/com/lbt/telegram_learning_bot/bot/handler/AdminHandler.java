@@ -97,7 +97,6 @@ public class AdminHandler extends BaseHandler {
         }
     }
 
-    // Унифицированная точка входа для документов (Telegram и VK)
     public void handleDocument(Long userId, Object fileReference) {
         try {
             byte[] fileContent = fileDownloader.downloadFile(fileReference);
@@ -119,15 +118,11 @@ public class AdminHandler extends BaseHandler {
         }
     }
 
-    // Для изображений (Telegram). VK пока не поддерживает загрузку изображений.
     public void handleImageUpload(Long userId, Object fileReference) {
-        // VK не поддерживает загрузку изображений через бот-сообщения
         if (fileReference == null) {
             sendMessage(userId, "Загрузка изображений через VK не поддерживается.", createCancelKeyboard());
             return;
         }
-        // Для Telegram здесь должна быть реализация, но она не требуется в рамках текущего рефакторинга
-        // Оставляем заглушку, т.к. оригинальный код выбрасывал исключение.
         sendMessage(userId, MSG_PLEASE_SEND_PHOTO, createCancelKeyboard());
     }
 
@@ -141,20 +136,20 @@ public class AdminHandler extends BaseHandler {
         sessionService.updateSessionState(userId, BotState.AWAITING_COURSE_JSON);
     }
 
-    public void promptEditCourse(Long userId, Integer messageId) {
-        showEditCoursesPage(userId, messageId, 0);
+    public void promptEditCourse(Long userId, Integer messageId, int pageSize) {
+        showEditCoursesPage(userId, messageId, 0, pageSize);
     }
 
-    public void promptDeleteCourse(Long userId, Integer messageId) {
-        showDeleteCoursesPage(userId, messageId, 0);
+    public void promptDeleteCourse(Long userId, Integer messageId, int pageSize) {
+        showDeleteCoursesPage(userId, messageId, 0, pageSize);
     }
 
     public void promptCurrentImage(Long userId, Integer messageId) {
         requestNextImage(userId, messageId);
     }
 
-    public void showEditCoursesPage(Long userId, Integer messageId, int page) {
-        var result = navigationService.getAllCoursesPage(page, ADMIN_PAGE_SIZE);
+    public void showEditCoursesPage(Long userId, Integer messageId, int page, int pageSize) {
+        var result = navigationService.getAllCoursesPage(page, pageSize);
         if (result.getItems().isEmpty()) {
             editMessage(userId, messageId, MSG_NO_COURSES_TO_EDIT, createBackToMainKeyboard());
             return;
@@ -165,8 +160,8 @@ public class AdminHandler extends BaseHandler {
         editMessage(userId, messageId, text, keyboard);
     }
 
-    private void showDeleteCoursesPage(Long userId, Integer messageId, int page) {
-        var result = navigationService.getAllCoursesPage(page, ADMIN_PAGE_SIZE);
+    private void showDeleteCoursesPage(Long userId, Integer messageId, int page, int pageSize) {
+        var result = navigationService.getAllCoursesPage(page, pageSize);
         if (result.getItems().isEmpty()) {
             editMessage(userId, messageId, MSG_NO_COURSES_TO_DELETE, createBackToMainKeyboard());
             return;
@@ -208,7 +203,11 @@ public class AdminHandler extends BaseHandler {
         } else if (ACTION_SECTIONS.equals(action)) {
             UserContext context = sessionService.getCurrentContext(userId);
             Long courseId = context.getEditingCourseId();
-            var result = navigationService.getSectionsPage(courseId, 0, ADMIN_PAGE_SIZE);
+            // Для первого показа разделов используем pageSize = ADMIN_PAGE_SIZE (5), но позже будет передан через handleAdminSectionsPage
+            // Пока оставим временно 5, но лучше передавать pageSize. Однако здесь нет pageSize, поэтому используем константу.
+            // В чистом решении нужно будет передавать pageSize из вызывающего кода. Для упрощения оставим 5.
+            int pageSize = 5; // TODO: в будущем передавать параметром
+            var result = navigationService.getSectionsPage(courseId, 0, pageSize);
             String text = MSG_SELECT_SECTION;
             BotKeyboard keyboard = keyboardBuilder.buildSectionsKeyboardForAdminBot(
                     result, courseId, CALLBACK_SELECT_SECTION_FOR_EDIT, CALLBACK_EDIT_COURSE);
@@ -238,7 +237,9 @@ public class AdminHandler extends BaseHandler {
         } else if (ACTION_TOPICS.equals(action)) {
             UserContext context = sessionService.getCurrentContext(userId);
             Long sectionId = context.getEditingSectionId();
-            var result = navigationService.getTopicsPage(sectionId, 0, ADMIN_PAGE_SIZE);
+            // Для первого показа тем используем pageSize = 5 (временно)
+            int pageSize = 5;
+            var result = navigationService.getTopicsPage(sectionId, 0, pageSize);
             String text = MSG_SELECT_TOPIC;
             BotKeyboard keyboard = keyboardBuilder.buildTopicsKeyboardForAdminBot(
                     result, sectionId, CALLBACK_SELECT_TOPIC_FOR_EDIT, CALLBACK_ADMIN_BACK_TO_SECTIONS);
@@ -354,7 +355,9 @@ public class AdminHandler extends BaseHandler {
             sendMessage(userId, response);
             context.setEditingCourseId(courseId);
             sessionService.updateSessionContext(userId, context);
-            var result = navigationService.getSectionsPage(courseId, 0, ADMIN_PAGE_SIZE);
+            // Для возврата к списку разделов нужен pageSize. Временно используем 5.
+            int pageSize = 5;
+            var result = navigationService.getSectionsPage(courseId, 0, pageSize);
             String text = MSG_SELECT_SECTION;
             BotKeyboard keyboard = keyboardBuilder.buildSectionsKeyboardForAdminBot(
                     result, courseId, CALLBACK_SELECT_SECTION_FOR_EDIT, CALLBACK_EDIT_COURSE);
@@ -405,7 +408,7 @@ public class AdminHandler extends BaseHandler {
             sendMessage(userId, MSG_TOPIC_UPDATED_NO_IMAGES);
             Long sectionId = sessionService.getCurrentContext(userId).getEditingSectionId();
             if (sectionId != null) {
-                showEditTopicsPage(userId, null, sectionId, 0);
+                showEditTopicsPage(userId, null, sectionId, 0, 5); // временно pageSize=5
             } else {
                 sendMainMenu(userId, null);
             }
@@ -426,7 +429,7 @@ public class AdminHandler extends BaseHandler {
             sendMessage(userId, MSG_IMAGES_COMPLETE);
             Long sectionId = context.getEditingSectionId();
             if (sectionId != null) {
-                showEditTopicsPage(userId, null, sectionId, 0);
+                showEditTopicsPage(userId, null, sectionId, 0, 5);
             } else {
                 sendMainMenu(userId, null);
             }
@@ -443,11 +446,11 @@ public class AdminHandler extends BaseHandler {
 
     // ================== Административные страницы ==================
 
-    public void showEditCourseSectionsPage(Long userId, Integer messageId, Long courseId, int page) {
+    public void showEditCourseSectionsPage(Long userId, Integer messageId, Long courseId, int page, int pageSize) {
         UserContext context = sessionService.getCurrentContext(userId);
         context.setAdminSectionsPage(page);
         sessionService.updateSessionContext(userId, context);
-        var result = navigationService.getSectionsPage(courseId, page, ADMIN_PAGE_SIZE);
+        var result = navigationService.getSectionsPage(courseId, page, pageSize);
         String courseTitle = navigationService.getCourseTitle(courseId);
         String text = String.format(FORMAT_EDIT_SECTIONS_HEADER,
                 courseTitle, page + 1, result.getTotalPages(), result.getTotalItems());
@@ -460,11 +463,11 @@ public class AdminHandler extends BaseHandler {
         }
     }
 
-    public void showEditTopicsPage(Long userId, Integer messageId, Long sectionId, int page) {
+    public void showEditTopicsPage(Long userId, Integer messageId, Long sectionId, int page, int pageSize) {
         UserContext context = sessionService.getCurrentContext(userId);
         context.setAdminTopicsPage(page);
         sessionService.updateSessionContext(userId, context);
-        var result = navigationService.getTopicsPage(sectionId, page, ADMIN_PAGE_SIZE);
+        var result = navigationService.getTopicsPage(sectionId, page, pageSize);
         String sectionTitle = navigationService.getSectionTitle(sectionId);
         String text = String.format(FORMAT_EDIT_TOPICS_HEADER,
                 sectionTitle, page + 1, result.getTotalPages(), result.getTotalItems());
@@ -477,59 +480,59 @@ public class AdminHandler extends BaseHandler {
         }
     }
 
-    public void handleBackToCoursesFromEdit(Long userId, Integer messageId) {
+    public void handleBackToCoursesFromEdit(Long userId, Integer messageId, int pageSize) {
         UserContext context = sessionService.getCurrentContext(userId);
         Long editingCourseId = context.getEditingCourseId();
         if (editingCourseId != null) {
-            showEditCoursesPage(userId, messageId, 0);
+            showEditCoursesPage(userId, messageId, 0, pageSize);
         } else {
             sendMainMenu(userId, messageId);
         }
     }
 
-    public void handleBackToSectionsFromEdit(Long userId, Integer messageId) {
+    public void handleBackToSectionsFromEdit(Long userId, Integer messageId, int pageSize) {
         UserContext context = sessionService.getCurrentContext(userId);
         Long courseId = context.getEditingCourseId();
         if (courseId != null) {
             Integer page = context.getAdminSectionsPage();
             if (page == null) page = 0;
-            showEditCourseSectionsPage(userId, messageId, courseId, page);
+            showEditCourseSectionsPage(userId, messageId, courseId, page, pageSize);
         } else {
             sendMainMenu(userId, messageId);
         }
     }
 
-    public void handleBackToTopicsFromEdit(Long userId, Integer messageId) {
+    public void handleBackToTopicsFromEdit(Long userId, Integer messageId, int pageSize) {
         UserContext context = sessionService.getCurrentContext(userId);
         Long sectionId = context.getEditingSectionId();
         if (sectionId != null) {
             Integer page = context.getAdminTopicsPage();
             if (page == null) page = 0;
-            showEditTopicsPage(userId, messageId, sectionId, page);
+            showEditTopicsPage(userId, messageId, sectionId, page, pageSize);
         } else {
             sendMainMenu(userId, messageId);
         }
     }
 
-    // Перегрузка для обратного вызова с параметрами
-    public void handleBackToTopicsFromEdit(Long userId, Integer messageId, Long sectionId, int page) {
-        showEditTopicsPage(userId, messageId, sectionId, page);
+    // Перегрузка для обратного вызова с параметрами (если переданы sectionId и page)
+    public void handleBackToTopicsFromEdit(Long userId, Integer messageId, Long sectionId, int page, int pageSize) {
+        showEditTopicsPage(userId, messageId, sectionId, page, pageSize);
     }
 
     public boolean isAdmin(Long userId) {
         return adminUserRepository.existsByUserId(userId);
     }
 
-    public void handleAdminCoursesPage(Long userId, Integer messageId, String source, int page) {
-        showEditCoursesPage(userId, messageId, page);
+    public void handleAdminCoursesPage(Long userId, Integer messageId, String source, int page, int pageSize) {
+        showEditCoursesPage(userId, messageId, page, pageSize);
     }
 
-    public void handleAdminSectionsPage(Long userId, Integer messageId, Long courseId, int page) {
-        showEditCourseSectionsPage(userId, messageId, courseId, page);
+    public void handleAdminSectionsPage(Long userId, Integer messageId, Long courseId, int page, int pageSize) {
+        showEditCourseSectionsPage(userId, messageId, courseId, page, pageSize);
     }
 
-    public void handleAdminTopicsPage(Long userId, Integer messageId, Long sectionId, int page) {
-        showEditTopicsPage(userId, messageId, sectionId, page);
+    public void handleAdminTopicsPage(Long userId, Integer messageId, Long sectionId, int page, int pageSize) {
+        showEditTopicsPage(userId, messageId, sectionId, page, pageSize);
     }
 
     // ================== Вспомогательные ==================

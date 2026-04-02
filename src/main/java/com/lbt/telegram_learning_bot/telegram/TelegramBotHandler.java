@@ -6,8 +6,10 @@ import com.lbt.telegram_learning_bot.bot.UserContext;
 import com.lbt.telegram_learning_bot.bot.handler.*;
 import com.lbt.telegram_learning_bot.platform.BotButton;
 import com.lbt.telegram_learning_bot.platform.BotKeyboard;
+import com.lbt.telegram_learning_bot.platform.MessageSender;
 import com.lbt.telegram_learning_bot.platform.Platform;
 import com.lbt.telegram_learning_bot.repository.*;
+import com.lbt.telegram_learning_bot.repository.UserStudyTimeRepository;
 import com.lbt.telegram_learning_bot.service.*;
 import com.pengrad.telegrambot.TelegramBot;
 import com.pengrad.telegrambot.model.CallbackQuery;
@@ -168,7 +170,8 @@ public class TelegramBotHandler extends BaseHandler {
                 case MAIN_MENU:
                     break;
                 case AWAITING_SEARCH_QUERY:
-                    courseNavHandler.handleSearchQuery(userId, text);
+                    int pageSize = userSettingsService.getSettings(userId).getPageSize();
+                    courseNavHandler.handleSearchQuery(userId, text, pageSize);
                     break;
                 case AWAITING_LINK_CODE:
                     linkHandler.applyCode(userId, text, Platform.TELEGRAM, externalUserId,
@@ -202,49 +205,50 @@ public class TelegramBotHandler extends BaseHandler {
 
             String[] parts = data.split(":", 3);
             String action = parts[0];
+            int pageSize = userSettingsService.getSettings(userId).getPageSize();
 
             switch (action) {
                 // навигация
                 case CALLBACK_MY_COURSES:
-                    courseNavHandler.handleMyCourses(userId, messageId, 0);
+                    courseNavHandler.handleMyCourses(userId, messageId, 0, pageSize);
                     break;
                 case CALLBACK_ALL_COURSES:
-                    courseNavHandler.handleAllCourses(userId, messageId, 0);
+                    courseNavHandler.handleAllCourses(userId, messageId, 0, pageSize);
                     break;
                 case CALLBACK_SEARCH_COURSES:
                     courseNavHandler.promptSearch(userId, messageId);
                     break;
                 case CALLBACK_COURSES_PAGE:
-                    courseNavHandler.handleCoursesPage(userId, messageId, parts[1], Integer.parseInt(parts[2]));
+                    courseNavHandler.handleCoursesPage(userId, messageId, parts[1], Integer.parseInt(parts[2]), pageSize);
                     break;
                 case CALLBACK_SELECT_COURSE:
-                    courseNavHandler.handleSelectCourse(userId, messageId, Long.parseLong(parts[1]));
+                    courseNavHandler.handleSelectCourse(userId, messageId, Long.parseLong(parts[1]), pageSize);
                     break;
                 case CALLBACK_SELECT_SECTION:
-                    courseNavHandler.handleSelectSection(userId, messageId, Long.parseLong(parts[1]));
+                    courseNavHandler.handleSelectSection(userId, messageId, Long.parseLong(parts[1]), pageSize);
                     break;
                 case CALLBACK_SELECT_TOPIC:
                     courseNavHandler.handleSelectTopic(userId, messageId, Long.parseLong(parts[1]));
                     break;
                 case CALLBACK_SECTIONS_PAGE:
-                    courseNavHandler.handleSectionsPage(userId, messageId, Long.parseLong(parts[1]), Integer.parseInt(parts[2]));
+                    courseNavHandler.handleSectionsPage(userId, messageId, Long.parseLong(parts[1]), Integer.parseInt(parts[2]), pageSize);
                     break;
                 case CALLBACK_TOPICS_PAGE:
-                    courseNavHandler.handleTopicsPage(userId, messageId, Long.parseLong(parts[1]), Integer.parseInt(parts[2]));
+                    courseNavHandler.handleTopicsPage(userId, messageId, Long.parseLong(parts[1]), Integer.parseInt(parts[2]), pageSize);
                     break;
                 case CALLBACK_BACK_TO_COURSES:
                     BotState state = sessionService.getCurrentState(userId);
                     if (isAdminState(state)) {
-                        adminHandler.handleBackToCoursesFromEdit(userId, messageId);
+                        adminHandler.handleBackToCoursesFromEdit(userId, messageId, pageSize);
                     } else {
-                        courseNavHandler.handleBackToCourses(userId, messageId);
+                        courseNavHandler.handleBackToCourses(userId, messageId, pageSize);
                     }
                     break;
                 case CALLBACK_BACK_TO_SECTIONS:
-                    courseNavHandler.handleBackToSections(userId, messageId);
+                    courseNavHandler.handleBackToSections(userId, messageId, pageSize);
                     break;
                 case CALLBACK_BACK_TO_TOPICS:
-                    courseNavHandler.handleBackToTopics(userId, messageId);
+                    courseNavHandler.handleBackToTopics(userId, messageId, pageSize);
                     break;
                 case CALLBACK_NEXT_BLOCK:
                     courseNavHandler.handleNextBlock(userId, messageId);
@@ -283,11 +287,11 @@ public class TelegramBotHandler extends BaseHandler {
                     break;
                 case CALLBACK_EDIT_COURSE:
                     if (!isAdmin(userId)) return;
-                    adminHandler.promptEditCourse(userId, messageId);
+                    adminHandler.promptEditCourse(userId, messageId, pageSize);
                     break;
                 case CALLBACK_DELETE_COURSE:
                     if (!isAdmin(userId)) return;
-                    adminHandler.promptDeleteCourse(userId, messageId);
+                    adminHandler.promptDeleteCourse(userId, messageId, pageSize);
                     break;
                 case CALLBACK_SELECT_COURSE_FOR_EDIT:
                     if (!isAdmin(userId)) return;
@@ -322,28 +326,28 @@ public class TelegramBotHandler extends BaseHandler {
                     break;
                 case CALLBACK_ADMIN_COURSES_PAGE:
                     if (!isAdmin(userId)) return;
-                    adminHandler.handleAdminCoursesPage(userId, messageId, parts[1], Integer.parseInt(parts[2]));
+                    adminHandler.handleAdminCoursesPage(userId, messageId, parts[1], Integer.parseInt(parts[2]), pageSize);
                     break;
                 case CALLBACK_ADMIN_SECTIONS_PAGE:
                     if (!isAdmin(userId)) return;
-                    adminHandler.handleAdminSectionsPage(userId, messageId, Long.parseLong(parts[1]), Integer.parseInt(parts[2]));
+                    adminHandler.handleAdminSectionsPage(userId, messageId, Long.parseLong(parts[1]), Integer.parseInt(parts[2]), pageSize);
                     break;
                 case CALLBACK_ADMIN_TOPICS_PAGE:
                     if (!isAdmin(userId)) return;
-                    adminHandler.handleAdminTopicsPage(userId, messageId, Long.parseLong(parts[1]), Integer.parseInt(parts[2]));
+                    adminHandler.handleAdminTopicsPage(userId, messageId, Long.parseLong(parts[1]), Integer.parseInt(parts[2]), pageSize);
                     break;
                 case CALLBACK_ADMIN_BACK_TO_SECTIONS:
                     if (!isAdmin(userId)) return;
-                    adminHandler.handleBackToSectionsFromEdit(userId, messageId);
+                    adminHandler.handleBackToSectionsFromEdit(userId, messageId, pageSize);
                     break;
                 case CALLBACK_ADMIN_BACK_TO_TOPICS:
                     if (!isAdmin(userId)) return;
                     if (parts.length >= 3) {
                         Long sectionId = Long.parseLong(parts[1]);
                         int page = Integer.parseInt(parts[2]);
-                        adminHandler.handleBackToTopicsFromEdit(userId, messageId, sectionId, page);
+                        adminHandler.handleBackToTopicsFromEdit(userId, messageId, sectionId, page, pageSize);
                     } else {
-                        adminHandler.handleBackToTopicsFromEdit(userId, messageId);
+                        adminHandler.handleBackToTopicsFromEdit(userId, messageId, pageSize);
                     }
                     break;
 
@@ -442,7 +446,8 @@ public class TelegramBotHandler extends BaseHandler {
             case COURSE_SECTIONS:
             case SECTION_TOPICS:
             case TOPIC_LEARNING:
-                courseNavHandler.handleBackToCourses(userId, messageId);
+                int pageSize = userSettingsService.getSettings(userId).getPageSize();
+                courseNavHandler.handleBackToCourses(userId, messageId, pageSize);
                 break;
             default:
                 sendMainMenu(userId, messageId);
