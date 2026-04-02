@@ -178,6 +178,9 @@ public class TelegramBotHandler extends BaseHandler {
                             new TelegramMessageSenderAdapter(telegramBot, sessionService, userId));
                     sessionService.updateSessionState(userId, BotState.MAIN_MENU);
                     break;
+                case AWAITING_PAGE_SIZE_INPUT:
+                    settingsHandler.handlePageSizeInput(userId, text, message.messageId());
+                    break;
                 default:
                     sendMainMenu(userId, message.messageId());
                     sessionService.updateSessionState(userId, BotState.MAIN_MENU);
@@ -303,15 +306,15 @@ public class TelegramBotHandler extends BaseHandler {
                     break;
                 case CALLBACK_EDIT_COURSE_ACTION:
                     if (!isAdmin(userId)) return;
-                    adminHandler.handleEditCourseAction(userId, messageId, parts[1]);
+                    adminHandler.handleEditCourseAction(userId, messageId, parts[1], pageSize);
+                    break;
+                case CALLBACK_EDIT_SECTION_ACTION:
+                    if (!isAdmin(userId)) return;
+                    adminHandler.handleEditSectionAction(userId, messageId, parts[1], pageSize);
                     break;
                 case CALLBACK_SELECT_SECTION_FOR_EDIT:
                     if (!isAdmin(userId)) return;
                     adminHandler.handleSelectSectionForEdit(userId, messageId, Long.parseLong(parts[1]));
-                    break;
-                case CALLBACK_EDIT_SECTION_ACTION:
-                    if (!isAdmin(userId)) return;
-                    adminHandler.handleEditSectionAction(userId, messageId, parts[1]);
                     break;
                 case CALLBACK_SELECT_TOPIC_FOR_EDIT:
                     if (!isAdmin(userId)) return;
@@ -384,6 +387,9 @@ public class TelegramBotHandler extends BaseHandler {
                     break;
                 case CALLBACK_SETTINGS_PAGESIZE:
                     settingsHandler.showPageSizeOptions(userId, messageId);
+                    break;
+                case CALLBACK_SETTINGS_PAGESIZE_OTHER:
+                    settingsHandler.promptPageSizeInput(userId, messageId);
                     break;
                 case CALLBACK_SETTINGS_QUESTIONS:
                     settingsHandler.showQuestionsPerBlockOptions(userId, messageId);

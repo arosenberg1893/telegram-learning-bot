@@ -5,6 +5,7 @@ import com.lbt.telegram_learning_bot.entity.UserSettings;
 import com.lbt.telegram_learning_bot.platform.BotButton;
 import com.lbt.telegram_learning_bot.platform.BotKeyboard;
 import com.lbt.telegram_learning_bot.platform.MessageSender;
+import com.lbt.telegram_learning_bot.platform.Platform;
 import com.lbt.telegram_learning_bot.repository.AdminUserRepository;
 import com.lbt.telegram_learning_bot.service.NavigationService;
 import com.lbt.telegram_learning_bot.service.UserProgressCleanupService;
@@ -47,19 +48,19 @@ public class SettingsHandler extends BaseHandler {
                 settings.getNotificationsEnabled() ? "✅" : "❌"
         );
 
-        BotKeyboard keyboard = new BotKeyboard().addRow(BotButton.callback("🔀 Перемешивание", CALLBACK_SETTINGS_SHUFFLE),
-                        BotButton.callback("📄 Размер страницы", CALLBACK_SETTINGS_PAGESIZE)
-                ).addRow(
-                        BotButton.callback("❓ Кол-во вопросов", CALLBACK_SETTINGS_QUESTIONS),
-                        BotButton.callback("💬 Пояснения", CALLBACK_SETTINGS_EXPLANATIONS)
-                ).addRow(
-                        BotButton.callback("🔔 Уведомления", CALLBACK_SETTINGS_NOTIFICATIONS),
-                        BotButton.callback("🗑️ Сброс прогресса", CALLBACK_SETTINGS_RESET)
-                ).addRow(
-                        BotButton.callback("🔗 Привязать аккаунт", CALLBACK_LINK_GENERATE)
-                ).addRow(
-                        BotButton.callback(BUTTON_MAIN_MENU, CALLBACK_MAIN_MENU)
-                );
+        BotKeyboard keyboard = new BotKeyboard()
+                .addRow(BotButton.callback("🔀 Перемешивание", CALLBACK_SETTINGS_SHUFFLE));
+
+        if (messageSender.getPlatform() != Platform.VK) {
+            keyboard.addRow(BotButton.callback("📄 Размер страницы", CALLBACK_SETTINGS_PAGESIZE));
+        }
+
+        keyboard.addRow(BotButton.callback("❓ Кол-во вопросов", CALLBACK_SETTINGS_QUESTIONS),
+                        BotButton.callback("💬 Пояснения", CALLBACK_SETTINGS_EXPLANATIONS))
+                .addRow(BotButton.callback("🔔 Уведомления", CALLBACK_SETTINGS_NOTIFICATIONS),
+                        BotButton.callback("🗑️ Сброс прогресса", CALLBACK_SETTINGS_RESET))
+                .addRow(BotButton.callback("🔗 Привязать аккаунт", CALLBACK_LINK_GENERATE))
+                .addRow(BotButton.callback(BUTTON_MAIN_MENU, CALLBACK_MAIN_MENU));
 
         if (messageId != null) {
             editMessage(userId, messageId, text, keyboard);
@@ -87,17 +88,60 @@ public class SettingsHandler extends BaseHandler {
     }
 
     public void showPageSizeOptions(Long userId, Integer messageId) {
+        if (messageSender.getPlatform() == Platform.VK) {
+            sendMessage(userId, "❌ Изменение размера страницы недоступно в VK.", createBackToMainKeyboard());
+            return;
+        }
         String text = "Выберите количество элементов на странице:";
-        BotKeyboard keyboard = new BotKeyboard().addRow(BotButton.callback("5", CALLBACK_SETTINGS_PAGESIZE_SET + ":5"),
-                BotButton.callback("10", CALLBACK_SETTINGS_PAGESIZE_SET + ":10"),
-                BotButton.callback("15", CALLBACK_SETTINGS_PAGESIZE_SET + ":15")
-        ).addRow(
-                BotButton.callback("🔙 Назад", CALLBACK_SETTINGS)
-        );
+        BotKeyboard keyboard = new BotKeyboard()
+                .addRow(
+                        BotButton.callback("5", CALLBACK_SETTINGS_PAGESIZE_SET + ":5"),
+                        BotButton.callback("10", CALLBACK_SETTINGS_PAGESIZE_SET + ":10"),
+                        BotButton.callback("15", CALLBACK_SETTINGS_PAGESIZE_SET + ":15")
+                )
+                .addRow(
+                        BotButton.callback("✏️ Другое", CALLBACK_SETTINGS_PAGESIZE_OTHER)
+                )
+                .addRow(
+                        BotButton.callback("🔙 Назад", CALLBACK_SETTINGS)
+                );
         editMessage(userId, messageId, text, keyboard);
     }
 
+    public void promptPageSizeInput(Long userId, Integer messageId) {
+        String text = "Введите число от 1 до 50 (количество элементов на странице):";
+        BotKeyboard keyboard = createCancelKeyboard();
+        if (messageId != null) {
+            editMessage(userId, messageId, text, keyboard);
+        } else {
+            sendMessage(userId, text, keyboard);
+        }
+        sessionService.updateSessionState(userId, BotState.AWAITING_PAGE_SIZE_INPUT);
+    }
+
+    public void handlePageSizeInput(Long userId, String input, Integer messageId) {
+        try {
+            int size = Integer.parseInt(input.trim());
+            if (size < 1 || size > 50) {
+                sendMessage(userId, "❌ Число должно быть от 1 до 50. Попробуйте ещё раз.", createCancelKeyboard());
+                return;
+            }
+            userSettingsService.updateSettings(userId, settings -> settings.setPageSize(size));
+            sessionService.updateSessionState(userId, BotState.MAIN_MENU);
+            showSettingsMenu(userId, null);
+            if (messageId != null) {
+                deleteMessage(userId, messageId);
+            }
+        } catch (NumberFormatException e) {
+            sendMessage(userId, "❌ Пожалуйста, введите целое число.", createCancelKeyboard());
+        }
+    }
+
     public void setPageSize(Long userId, Integer messageId, int size) {
+        if (messageSender.getPlatform() == Platform.VK) {
+            sendMessage(userId, "❌ Изменение размера страницы недоступно в VK.", createBackToMainKeyboard());
+            return;
+        }
         userSettingsService.updateSettings(userId, settings -> settings.setPageSize(size));
         showSettingsMenu(userId, messageId);
     }
@@ -131,7 +175,6 @@ public class SettingsHandler extends BaseHandler {
         progressCleanupService.deleteAllUserData(userId);
         sessionService.updateSessionState(userId, BotState.MAIN_MENU);
         sendMessage(userId, "✅ Весь прогресс успешно сброшен.", createBackToMainKeyboard());
-        // Возвращаем в главное меню, так как настройки могли быть изменены
         sendMainMenu(userId, null);
     }
 }

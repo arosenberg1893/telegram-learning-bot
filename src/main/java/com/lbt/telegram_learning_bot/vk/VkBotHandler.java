@@ -42,8 +42,8 @@ public class VkBotHandler {
     private final UserLockService userLockService;
     private final UserSettingsService userSettingsService;
 
-    // Размер страницы для VK (чтобы избежать ошибки "too many rows" и других ограничений)
-    private static final int VK_PAGE_SIZE = 3;
+    @Value("${vk.bot.page-size:3}")
+    private int vkPageSize;
 
     @Value("${app.base-url}")
     private String appBaseUrl;
@@ -129,7 +129,7 @@ public class VkBotHandler {
             }
             switch (currentState) {
                 case AWAITING_SEARCH_QUERY:
-                    courseNavHandler.handleSearchQuery(internalUserId, text, VK_PAGE_SIZE);
+                    courseNavHandler.handleSearchQuery(internalUserId, text, vkPageSize);
                     break;
                 case AWAITING_LINK_CODE:
                     linkHandler.applyCode(internalUserId, text, Platform.VK, vkUserId, sender);
@@ -169,45 +169,45 @@ public class VkBotHandler {
 
             switch (action) {
                 case CALLBACK_MY_COURSES:
-                    courseNavHandler.handleMyCourses(internalUserId, messageId, 0, VK_PAGE_SIZE);
+                    courseNavHandler.handleMyCourses(internalUserId, messageId, 0, vkPageSize);
                     break;
                 case CALLBACK_ALL_COURSES:
-                    courseNavHandler.handleAllCourses(internalUserId, messageId, 0, VK_PAGE_SIZE);
+                    courseNavHandler.handleAllCourses(internalUserId, messageId, 0, vkPageSize);
                     break;
                 case CALLBACK_SEARCH_COURSES:
                     courseNavHandler.promptSearch(internalUserId, messageId);
                     break;
                 case CALLBACK_COURSES_PAGE:
-                    courseNavHandler.handleCoursesPage(internalUserId, messageId, parts[1], Integer.parseInt(parts[2]), VK_PAGE_SIZE);
+                    courseNavHandler.handleCoursesPage(internalUserId, messageId, parts[1], Integer.parseInt(parts[2]), vkPageSize);
                     break;
                 case CALLBACK_SELECT_COURSE:
-                    courseNavHandler.handleSelectCourse(internalUserId, messageId, Long.parseLong(parts[1]), VK_PAGE_SIZE);
+                    courseNavHandler.handleSelectCourse(internalUserId, messageId, Long.parseLong(parts[1]), vkPageSize);
                     break;
                 case CALLBACK_SELECT_SECTION:
-                    courseNavHandler.handleSelectSection(internalUserId, messageId, Long.parseLong(parts[1]), VK_PAGE_SIZE);
+                    courseNavHandler.handleSelectSection(internalUserId, messageId, Long.parseLong(parts[1]), vkPageSize);
                     break;
                 case CALLBACK_SELECT_TOPIC:
                     courseNavHandler.handleSelectTopic(internalUserId, messageId, Long.parseLong(parts[1]));
                     break;
                 case CALLBACK_SECTIONS_PAGE:
-                    courseNavHandler.handleSectionsPage(internalUserId, messageId, Long.parseLong(parts[1]), Integer.parseInt(parts[2]), VK_PAGE_SIZE);
+                    courseNavHandler.handleSectionsPage(internalUserId, messageId, Long.parseLong(parts[1]), Integer.parseInt(parts[2]), vkPageSize);
                     break;
                 case CALLBACK_TOPICS_PAGE:
-                    courseNavHandler.handleTopicsPage(internalUserId, messageId, Long.parseLong(parts[1]), Integer.parseInt(parts[2]), VK_PAGE_SIZE);
+                    courseNavHandler.handleTopicsPage(internalUserId, messageId, Long.parseLong(parts[1]), Integer.parseInt(parts[2]), vkPageSize);
                     break;
                 case CALLBACK_BACK_TO_COURSES:
                     BotState state = sessionService.getCurrentState(internalUserId);
                     if (isAdminState(state)) {
-                        adminHandler.handleBackToCoursesFromEdit(internalUserId, messageId, VK_PAGE_SIZE);
+                        adminHandler.handleBackToCoursesFromEdit(internalUserId, messageId, vkPageSize);
                     } else {
-                        courseNavHandler.handleBackToCourses(internalUserId, messageId, VK_PAGE_SIZE);
+                        courseNavHandler.handleBackToCourses(internalUserId, messageId, vkPageSize);
                     }
                     break;
                 case CALLBACK_BACK_TO_SECTIONS:
-                    courseNavHandler.handleBackToSections(internalUserId, messageId, VK_PAGE_SIZE);
+                    courseNavHandler.handleBackToSections(internalUserId, messageId, vkPageSize);
                     break;
                 case CALLBACK_BACK_TO_TOPICS:
-                    courseNavHandler.handleBackToTopics(internalUserId, messageId, VK_PAGE_SIZE);
+                    courseNavHandler.handleBackToTopics(internalUserId, messageId, vkPageSize);
                     break;
                 case CALLBACK_NEXT_BLOCK:
                     courseNavHandler.handleNextBlock(internalUserId, messageId);
@@ -240,10 +240,10 @@ public class VkBotHandler {
                     if (isAdmin(internalUserId)) adminHandler.promptCreateCourse(internalUserId, messageId);
                     break;
                 case CALLBACK_EDIT_COURSE:
-                    if (isAdmin(internalUserId)) adminHandler.promptEditCourse(internalUserId, messageId, VK_PAGE_SIZE);
+                    if (isAdmin(internalUserId)) adminHandler.promptEditCourse(internalUserId, messageId, vkPageSize);
                     break;
                 case CALLBACK_DELETE_COURSE:
-                    if (isAdmin(internalUserId)) adminHandler.promptDeleteCourse(internalUserId, messageId, VK_PAGE_SIZE);
+                    if (isAdmin(internalUserId)) adminHandler.promptDeleteCourse(internalUserId, messageId, vkPageSize);
                     break;
                 case CALLBACK_SELECT_COURSE_FOR_EDIT:
                     if (isAdmin(internalUserId)) adminHandler.handleSelectCourseForEdit(internalUserId, messageId, Long.parseLong(parts[1]));
@@ -251,14 +251,16 @@ public class VkBotHandler {
                 case CALLBACK_SELECT_COURSE_FOR_DELETE:
                     if (isAdmin(internalUserId)) adminHandler.handleSelectCourseForDelete(internalUserId, messageId, Long.parseLong(parts[1]));
                     break;
-                case CALLBACK_EDIT_COURSE_ACTION:
-                    if (isAdmin(internalUserId)) adminHandler.handleEditCourseAction(internalUserId, messageId, parts[1]);
-                    break;
                 case CALLBACK_SELECT_SECTION_FOR_EDIT:
                     if (isAdmin(internalUserId)) adminHandler.handleSelectSectionForEdit(internalUserId, messageId, Long.parseLong(parts[1]));
                     break;
+                case CALLBACK_EDIT_COURSE_ACTION:
+                    if (!isAdmin(internalUserId)) return;
+                    adminHandler.handleEditCourseAction(internalUserId, messageId, parts[1], vkPageSize);
+                    break;
                 case CALLBACK_EDIT_SECTION_ACTION:
-                    if (isAdmin(internalUserId)) adminHandler.handleEditSectionAction(internalUserId, messageId, parts[1]);
+                    if (!isAdmin(internalUserId)) return;
+                    adminHandler.handleEditSectionAction(internalUserId, messageId, parts[1], vkPageSize);
                     break;
                 case CALLBACK_SELECT_TOPIC_FOR_EDIT:
                     if (isAdmin(internalUserId)) adminHandler.handleSelectTopicForEdit(internalUserId, messageId, Long.parseLong(parts[1]));
@@ -270,25 +272,25 @@ public class VkBotHandler {
                     adminHandler.handleRetry(internalUserId, messageId);
                     break;
                 case CALLBACK_ADMIN_COURSES_PAGE:
-                    if (isAdmin(internalUserId)) adminHandler.handleAdminCoursesPage(internalUserId, messageId, parts[1], Integer.parseInt(parts[2]), VK_PAGE_SIZE);
+                    if (isAdmin(internalUserId)) adminHandler.handleAdminCoursesPage(internalUserId, messageId, parts[1], Integer.parseInt(parts[2]), vkPageSize);
                     break;
                 case CALLBACK_ADMIN_SECTIONS_PAGE:
-                    if (isAdmin(internalUserId)) adminHandler.handleAdminSectionsPage(internalUserId, messageId, Long.parseLong(parts[1]), Integer.parseInt(parts[2]), VK_PAGE_SIZE);
+                    if (isAdmin(internalUserId)) adminHandler.handleAdminSectionsPage(internalUserId, messageId, Long.parseLong(parts[1]), Integer.parseInt(parts[2]), vkPageSize);
                     break;
                 case CALLBACK_ADMIN_TOPICS_PAGE:
-                    if (isAdmin(internalUserId)) adminHandler.handleAdminTopicsPage(internalUserId, messageId, Long.parseLong(parts[1]), Integer.parseInt(parts[2]), VK_PAGE_SIZE);
+                    if (isAdmin(internalUserId)) adminHandler.handleAdminTopicsPage(internalUserId, messageId, Long.parseLong(parts[1]), Integer.parseInt(parts[2]), vkPageSize);
                     break;
                 case CALLBACK_ADMIN_BACK_TO_SECTIONS:
-                    if (isAdmin(internalUserId)) adminHandler.handleBackToSectionsFromEdit(internalUserId, messageId, VK_PAGE_SIZE);
+                    if (isAdmin(internalUserId)) adminHandler.handleBackToSectionsFromEdit(internalUserId, messageId, vkPageSize);
                     break;
                 case CALLBACK_ADMIN_BACK_TO_TOPICS:
                     if (isAdmin(internalUserId)) {
                         if (parts.length >= 3) {
                             Long sectionId = Long.parseLong(parts[1]);
                             int page = Integer.parseInt(parts[2]);
-                            adminHandler.handleBackToTopicsFromEdit(internalUserId, messageId, sectionId, page, VK_PAGE_SIZE);
+                            adminHandler.handleBackToTopicsFromEdit(internalUserId, messageId, sectionId, page, vkPageSize);
                         } else {
-                            adminHandler.handleBackToTopicsFromEdit(internalUserId, messageId, VK_PAGE_SIZE);
+                            adminHandler.handleBackToTopicsFromEdit(internalUserId, messageId, vkPageSize);
                         }
                     }
                     break;
@@ -452,7 +454,7 @@ public class VkBotHandler {
                 sessionService.updateSessionState(internalUserId, BotState.MAIN_MENU);
                 break;
             case COURSE_SECTIONS, SECTION_TOPICS, TOPIC_LEARNING:
-                courseNavHandler.handleBackToCourses(internalUserId, messageId, VK_PAGE_SIZE);
+                courseNavHandler.handleBackToCourses(internalUserId, messageId, vkPageSize);
                 break;
             default:
                 sendMainMenu(internalUserId, vkUserId, messageId);

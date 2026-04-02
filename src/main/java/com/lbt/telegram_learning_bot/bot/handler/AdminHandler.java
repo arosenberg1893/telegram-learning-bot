@@ -196,17 +196,13 @@ public class AdminHandler extends BaseHandler {
         editMessage(userId, messageId, text, keyboard);
     }
 
-    public void handleEditCourseAction(Long userId, Integer messageId, String action) {
+    public void handleEditCourseAction(Long userId, Integer messageId, String action, int pageSize) {
         if (ACTION_NAME_DESC.equals(action)) {
             editMessage(userId, messageId, MSG_SEND_JSON_COURSE_NAME_DESC, createCancelKeyboard());
             sessionService.updateSessionState(userId, BotState.EDIT_COURSE_NAME_DESC);
         } else if (ACTION_SECTIONS.equals(action)) {
             UserContext context = sessionService.getCurrentContext(userId);
             Long courseId = context.getEditingCourseId();
-            // Для первого показа разделов используем pageSize = ADMIN_PAGE_SIZE (5), но позже будет передан через handleAdminSectionsPage
-            // Пока оставим временно 5, но лучше передавать pageSize. Однако здесь нет pageSize, поэтому используем константу.
-            // В чистом решении нужно будет передавать pageSize из вызывающего кода. Для упрощения оставим 5.
-            int pageSize = 5; // TODO: в будущем передавать параметром
             var result = navigationService.getSectionsPage(courseId, 0, pageSize);
             String text = MSG_SELECT_SECTION;
             BotKeyboard keyboard = keyboardBuilder.buildSectionsKeyboardForAdminBot(
@@ -230,15 +226,13 @@ public class AdminHandler extends BaseHandler {
         sessionService.updateSessionState(userId, BotState.EDIT_SECTION_NAME_DESC);
     }
 
-    public void handleEditSectionAction(Long userId, Integer messageId, String action) {
+    public void handleEditSectionAction(Long userId, Integer messageId, String action, int pageSize) {
         if (ACTION_NAME_DESC.equals(action)) {
             editMessage(userId, messageId, MSG_SEND_JSON_SECTION_NAME_DESC, createCancelKeyboard());
             sessionService.updateSessionState(userId, BotState.EDIT_SECTION_NAME_DESC);
         } else if (ACTION_TOPICS.equals(action)) {
             UserContext context = sessionService.getCurrentContext(userId);
             Long sectionId = context.getEditingSectionId();
-            // Для первого показа тем используем pageSize = 5 (временно)
-            int pageSize = 5;
             var result = navigationService.getTopicsPage(sectionId, 0, pageSize);
             String text = MSG_SELECT_TOPIC;
             BotKeyboard keyboard = keyboardBuilder.buildTopicsKeyboardForAdminBot(
@@ -355,9 +349,8 @@ public class AdminHandler extends BaseHandler {
             sendMessage(userId, response);
             context.setEditingCourseId(courseId);
             sessionService.updateSessionContext(userId, context);
-            // Для возврата к списку разделов нужен pageSize. Временно используем 5.
-            int pageSize = 5;
-            var result = navigationService.getSectionsPage(courseId, 0, pageSize);
+            // Используем стандартный размер страницы для административных функций
+            var result = navigationService.getSectionsPage(courseId, 0, ADMIN_DEFAULT_PAGE_SIZE);
             String text = MSG_SELECT_SECTION;
             BotKeyboard keyboard = keyboardBuilder.buildSectionsKeyboardForAdminBot(
                     result, courseId, CALLBACK_SELECT_SECTION_FOR_EDIT, CALLBACK_EDIT_COURSE);
@@ -408,7 +401,7 @@ public class AdminHandler extends BaseHandler {
             sendMessage(userId, MSG_TOPIC_UPDATED_NO_IMAGES);
             Long sectionId = sessionService.getCurrentContext(userId).getEditingSectionId();
             if (sectionId != null) {
-                showEditTopicsPage(userId, null, sectionId, 0, 5); // временно pageSize=5
+                showEditTopicsPage(userId, null, sectionId, 0, ADMIN_DEFAULT_PAGE_SIZE);
             } else {
                 sendMainMenu(userId, null);
             }
@@ -429,7 +422,7 @@ public class AdminHandler extends BaseHandler {
             sendMessage(userId, MSG_IMAGES_COMPLETE);
             Long sectionId = context.getEditingSectionId();
             if (sectionId != null) {
-                showEditTopicsPage(userId, null, sectionId, 0, 5);
+                showEditTopicsPage(userId, null, sectionId, 0, ADMIN_DEFAULT_PAGE_SIZE);
             } else {
                 sendMainMenu(userId, null);
             }

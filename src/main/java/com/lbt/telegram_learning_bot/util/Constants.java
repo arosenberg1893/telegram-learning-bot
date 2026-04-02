@@ -263,4 +263,7 @@ public final class Constants {
     public static final String CALLBACK_SETTINGS_PAGESIZE_SET = "settings_pagesize_set";
     public static final String CALLBACK_SETTINGS_QUESTIONS_SET = "settings_questions_set";
     public static final String CALLBACK_SETTINGS_RESET_CONFIRM = "settings_reset_confirm";
+    public static final String CALLBACK_SETTINGS_PAGESIZE_OTHER = "settings_pagesize_other";
+
+    public static final int ADMIN_DEFAULT_PAGE_SIZE = 5;
 }
