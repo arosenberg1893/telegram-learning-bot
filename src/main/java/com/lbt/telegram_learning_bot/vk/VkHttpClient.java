@@ -22,12 +22,14 @@ public class VkHttpClient {
 
     private final String accessToken;
     private final int groupId;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper;
 
     public VkHttpClient(@Value("${vk.bot.token}") String accessToken,
-                        @Value("${vk.bot.group-id}") int groupId) {
+                        @Value("${vk.bot.group-id}") int groupId,
+                        ObjectMapper objectMapper) {
         this.accessToken = accessToken;
         this.groupId = groupId;
+        this.objectMapper = objectMapper;
     }
 
     public Integer sendMessage(int peerId, String message) {
@@ -177,11 +179,6 @@ public class VkHttpClient {
         }
     }
 
-    // VkHttpClient.java — добавьте следующие методы
-
-    /**
-     * Получить URL для загрузки документа.
-     */
     public String getDocumentUploadServer() {
         Map<String, String> params = new HashMap<>();
         params.put("type", "doc");
@@ -193,13 +190,6 @@ public class VkHttpClient {
         return response.path("response").path("upload_url").asText();
     }
 
-    /**
-     * Загрузить файл на полученный URL.
-     * @param uploadUrl URL из getDocumentUploadServer
-     * @param data байты файла
-     * @param fileName имя файла
-     * @return JSON ответ от сервера (содержит file)
-     */
     public String uploadDocument(String uploadUrl, byte[] data, String fileName) {
         try {
             HttpURLConnection conn = (HttpURLConnection) new URL(uploadUrl).openConnection();
@@ -209,7 +199,6 @@ public class VkHttpClient {
             conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
 
             try (java.io.OutputStream out = conn.getOutputStream()) {
-                // Запись файла
                 out.write(("--" + boundary + "\r\n").getBytes());
                 out.write(("Content-Disposition: form-data; name=\"file\"; filename=\"" + fileName + "\"\r\n").getBytes());
                 out.write("Content-Type: application/pdf\r\n\r\n".getBytes());
@@ -236,11 +225,6 @@ public class VkHttpClient {
         }
     }
 
-    /**
-     * Сохранить загруженный документ.
-     * @param uploadResponse ответ от uploadDocument (JSON строка)
-     * @return attachment строка вида "doc{owner_id}_{doc_id}", или null
-     */
     public String saveDocument(String uploadResponse) {
         try {
             JsonNode fileNode = objectMapper.readTree(uploadResponse).path("file");
@@ -265,14 +249,6 @@ public class VkHttpClient {
         }
     }
 
-    /**
-     * Отправить документ пользователю.
-     * @param peerId ID получателя
-     * @param data байты файла
-     * @param fileName имя файла
-     * @param caption подпись
-     * @return messageId или null
-     */
     public Integer sendDocument(int peerId, byte[] data, String fileName, String caption) {
         String uploadUrl = getDocumentUploadServer();
         if (uploadUrl == null) return null;
@@ -312,5 +288,4 @@ public class VkHttpClient {
         }
         return null;
     }
-
 }

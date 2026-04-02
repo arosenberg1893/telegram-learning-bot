@@ -14,8 +14,6 @@ import org.springframework.stereotype.Repository;
 
 import java.util.List;
 import java.util.Optional;
-import com.lbt.telegram_learning_bot.platform.BotButton;
-import com.lbt.telegram_learning_bot.platform.BotKeyboard;
 
 @Repository
 public interface UserProgressRepository extends JpaRepository<UserProgress, Long> {
@@ -126,4 +124,7 @@ public interface UserProgressRepository extends JpaRepository<UserProgress, Long
     void deleteByUserId(@Param("userId") Long userId);
 
     boolean existsByUserId(Long userId);
+
+    @Query("SELECT p FROM UserProgress p WHERE p.userId = :userId AND p.question.block.topic.id = :topicId AND p.mode = :mode")
+    List<UserProgress> findByUserIdAndTopicIdAndMode(@Param("userId") Long userId, @Param("topicId") Long topicId, @Param("mode") String mode);
 }

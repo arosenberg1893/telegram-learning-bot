@@ -6,13 +6,9 @@ import com.lbt.telegram_learning_bot.bot.UserContext;
 import com.lbt.telegram_learning_bot.bot.handler.*;
 import com.lbt.telegram_learning_bot.platform.BotButton;
 import com.lbt.telegram_learning_bot.platform.BotKeyboard;
-import com.lbt.telegram_learning_bot.platform.MessageSender;
 import com.lbt.telegram_learning_bot.platform.Platform;
 import com.lbt.telegram_learning_bot.repository.*;
-import com.lbt.telegram_learning_bot.repository.UserStudyTimeRepository;
 import com.lbt.telegram_learning_bot.service.*;
-import com.lbt.telegram_learning_bot.telegram.TelegramMessageSender;
-import com.lbt.telegram_learning_bot.telegram.TelegramFileDownloader;
 import com.pengrad.telegrambot.TelegramBot;
 import com.pengrad.telegrambot.model.CallbackQuery;
 import com.pengrad.telegrambot.model.Message;
@@ -35,7 +31,7 @@ import static com.lbt.telegram_learning_bot.util.Constants.*;
 public class TelegramBotHandler extends BaseHandler {
 
     private final PdfExportService pdfExportService;
-    private final PlatformUserService platformUserService;
+    private final AccountLinkService accountLinkService;
     private final LinkHandler linkHandler;
     private final CourseNavigationHandler courseNavHandler;
     private final TestHandler testHandler;
@@ -44,22 +40,9 @@ public class TelegramBotHandler extends BaseHandler {
     private final SettingsHandler settingsHandler;
     private final TelegramBot telegramBot;
     private final KeyboardBuilder keyboardBuilder;
-    private final QuestionRepository questionRepository;
-    private final AnswerOptionRepository answerOptionRepository;
-    private final UserProgressRepository userProgressRepository;
-    private final UserMistakeRepository userMistakeRepository;
-    private final UserTestResultRepository userTestResultRepository;
-    private final CourseImportService courseImportService;
-    private final CourseRepository courseRepository;
-    private final SectionRepository sectionRepository;
-    private final TopicRepository topicRepository;
-    private final BlockRepository blockRepository;
-    private final BlockImageRepository blockImageRepository;
-    private final QuestionImageRepository questionImageRepository;
     private final ObjectMapper objectMapper;
     private final UserProgressCleanupService progressCleanupService;
-    private final UserStudyTimeRepository userStudyTimeRepository;
-    private final UserLockService userLockService;  // единый сервис блокировок
+    private final UserLockService userLockService;
 
     @Value("${message.max-length:2000}")
     private int maxMessageLength;
@@ -76,7 +59,7 @@ public class TelegramBotHandler extends BaseHandler {
                               UserSettingsService userSettingsService,
                               PdfExportService pdfExportService,
                               RateLimiterService rateLimiterService,
-                              PlatformUserService platformUserService,
+                              AccountLinkService accountLinkService,
                               LinkHandler linkHandler,
                               KeyboardBuilder keyboardBuilder,
                               QuestionRepository questionRepository,
@@ -99,27 +82,14 @@ public class TelegramBotHandler extends BaseHandler {
         this.telegramBot = telegramBot;
         this.pdfExportService = pdfExportService;
         this.rateLimiterService = rateLimiterService;
-        this.platformUserService = platformUserService;
+        this.accountLinkService = accountLinkService;
         this.linkHandler = linkHandler;
         this.keyboardBuilder = keyboardBuilder;
-        this.questionRepository = questionRepository;
-        this.answerOptionRepository = answerOptionRepository;
-        this.userProgressRepository = userProgressRepository;
-        this.userMistakeRepository = userMistakeRepository;
-        this.userTestResultRepository = userTestResultRepository;
-        this.courseImportService = courseImportService;
-        this.courseRepository = courseRepository;
-        this.sectionRepository = sectionRepository;
-        this.topicRepository = topicRepository;
-        this.blockRepository = blockRepository;
-        this.blockImageRepository = blockImageRepository;
-        this.questionImageRepository = questionImageRepository;
         this.objectMapper = objectMapper;
         this.progressCleanupService = progressCleanupService;
-        this.userStudyTimeRepository = userStudyTimeRepository;
         this.userLockService = userLockService;
 
-        // messageSender уже создан в super() — переиспользуем его
+        // Создаём зависимые хендлеры
         this.courseNavHandler = new CourseNavigationHandler(messageSender, sessionService, navigationService, adminUserRepository, keyboardBuilder, userSettingsService);
         this.testHandler = new TestHandler(messageSender, sessionService, navigationService, questionRepository, adminUserRepository, answerOptionRepository, userProgressRepository, userMistakeRepository, userTestResultRepository, courseNavHandler, userSettingsService);
         this.adminHandler = new AdminHandler(messageSender, new TelegramFileDownloader(telegramBot), sessionService, navigationService, courseImportService, courseRepository, keyboardBuilder, sectionRepository, topicRepository, blockRepository, questionRepository, answerOptionRepository, blockImageRepository, questionImageRepository, adminUserRepository, userProgressRepository, userStudyTimeRepository, objectMapper, userSettingsService);
@@ -146,7 +116,7 @@ public class TelegramBotHandler extends BaseHandler {
 
     private void handleMessage(Message message) {
         Long externalUserId = message.from().id();
-        Long userId = platformUserService.resolveUserId(Platform.TELEGRAM, externalUserId);
+        Long userId = accountLinkService.resolveInternalUserId(Platform.TELEGRAM, externalUserId);
         synchronized (userLockService.getLock(userId)) {
             if (!rateLimiterService.isAllowed(userId)) {
                 sendMessage(userId, TOO_MANY_REQUEST);
@@ -186,10 +156,10 @@ public class TelegramBotHandler extends BaseHandler {
                 String[] parts = text.split("\\s+", 2);
                 if (parts.length == 2 && !parts[1].isBlank()) {
                     linkHandler.applyCode(userId, parts[1], Platform.TELEGRAM, externalUserId,
-                            new com.lbt.telegram_learning_bot.telegram.TelegramMessageSenderAdapter(telegramBot, sessionService, userId));
+                            new TelegramMessageSenderAdapter(telegramBot, sessionService, userId));
                 } else {
                     linkHandler.generateCode(userId, Platform.TELEGRAM,
-                            new com.lbt.telegram_learning_bot.telegram.TelegramMessageSenderAdapter(telegramBot, sessionService, userId));
+                            new TelegramMessageSenderAdapter(telegramBot, sessionService, userId));
                 }
                 return;
             }
@@ -202,7 +172,7 @@ public class TelegramBotHandler extends BaseHandler {
                     break;
                 case AWAITING_LINK_CODE:
                     linkHandler.applyCode(userId, text, Platform.TELEGRAM, externalUserId,
-                            new com.lbt.telegram_learning_bot.telegram.TelegramMessageSenderAdapter(telegramBot, sessionService, userId));
+                            new TelegramMessageSenderAdapter(telegramBot, sessionService, userId));
                     sessionService.updateSessionState(userId, BotState.MAIN_MENU);
                     break;
                 default:
@@ -214,7 +184,7 @@ public class TelegramBotHandler extends BaseHandler {
 
     private void handleCallback(CallbackQuery callbackQuery) {
         Long externalUserId = callbackQuery.from().id();
-        Long userId = platformUserService.resolveUserId(Platform.TELEGRAM, externalUserId);
+        Long userId = accountLinkService.resolveInternalUserId(Platform.TELEGRAM, externalUserId);
         synchronized (userLockService.getLock(userId)) {
             if (!rateLimiterService.isAllowed(userId)) {
                 try {
@@ -440,18 +410,18 @@ public class TelegramBotHandler extends BaseHandler {
                     break;
                 case CALLBACK_LINK_GENERATE:
                     linkHandler.generateCode(userId, Platform.TELEGRAM,
-                            new com.lbt.telegram_learning_bot.telegram.TelegramMessageSenderAdapter(telegramBot, sessionService, userId));
+                            new TelegramMessageSenderAdapter(telegramBot, sessionService, userId));
                     break;
                 case CALLBACK_LINK_RESOLVE_KEEP_THIS:
                     if (parts.length >= 2) {
                         linkHandler.resolveConflictKeepThis(userId, parts[1], Platform.TELEGRAM, externalUserId,
-                                new com.lbt.telegram_learning_bot.telegram.TelegramMessageSenderAdapter(telegramBot, sessionService, userId));
+                                new TelegramMessageSenderAdapter(telegramBot, sessionService, userId));
                     }
                     break;
                 case CALLBACK_LINK_RESOLVE_KEEP_OTHER:
                     if (parts.length >= 2) {
                         linkHandler.resolveConflictKeepOther(userId, parts[1], Platform.TELEGRAM, externalUserId,
-                                new com.lbt.telegram_learning_bot.telegram.TelegramMessageSenderAdapter(telegramBot, sessionService, userId));
+                                new TelegramMessageSenderAdapter(telegramBot, sessionService, userId));
                     }
                     break;
                 default:

@@ -8,8 +8,6 @@ import org.springframework.stereotype.Service;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
-import com.lbt.telegram_learning_bot.platform.BotButton;
-import com.lbt.telegram_learning_bot.platform.BotKeyboard;
 
 @Slf4j
 @Service

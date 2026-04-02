@@ -3,13 +3,12 @@ package com.lbt.telegram_learning_bot.vk;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lbt.telegram_learning_bot.platform.Platform;
-import com.lbt.telegram_learning_bot.service.PlatformUserService;
+import com.lbt.telegram_learning_bot.service.AccountLinkService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
-import java.util.HashMap;
 import java.util.Map;
 
 @Slf4j
@@ -19,7 +18,7 @@ import java.util.Map;
 public class VkUpdateHandler {
 
     private final VkBotHandler vkBotHandler;
-    private final PlatformUserService platformUserService;
+    private final AccountLinkService accountLinkService;
     private final VkHttpClient vkHttpClient;
     private final ObjectMapper objectMapper;
 
@@ -32,11 +31,11 @@ public class VkUpdateHandler {
             case "message_new" -> {
                 JsonNode msg = object.get("message");
                 long vkUserId = msg.get("from_id").asLong();
-                long internalUserId = platformUserService.resolveUserId(Platform.VK, vkUserId);
+                long internalUserId = accountLinkService.resolveInternalUserId(Platform.VK, vkUserId);
                 String text = msg.has("text") ? msg.get("text").asText() : "";
                 int msgId = msg.get("id").asInt();
                 log.debug("[VK] message_new from vkUser={} internalUser={}: {}", vkUserId, internalUserId, text);
-                
+
                 // Проверяем наличие документа
                 JsonNode attachments = msg.get("attachments");
                 if (attachments != null && attachments.isArray()) {
@@ -45,7 +44,7 @@ public class VkUpdateHandler {
                             JsonNode doc = att.get("doc");
                             String docUrl = doc.has("url") ? doc.get("url").asText() : null;
                             if (docUrl != null && !docUrl.isEmpty()) {
-                                Map<String, Object> fileRef = new HashMap<>();
+                                Map<String, Object> fileRef = new java.util.HashMap<>();
                                 fileRef.put("url", docUrl);
                                 vkBotHandler.handleDocument(internalUserId, vkUserId, fileRef, msgId);
                                 return;
@@ -59,7 +58,7 @@ public class VkUpdateHandler {
             }
             case "message_event" -> {
                 long vkUserId = object.get("user_id").asLong();
-                long internalUserId = platformUserService.resolveUserId(Platform.VK, vkUserId);
+                long internalUserId = accountLinkService.resolveInternalUserId(Platform.VK, vkUserId);
                 JsonNode payloadNode = object.get("payload");
                 String callbackData = extractCallbackData(payloadNode);
                 int msgId = object.get("conversation_message_id").asInt();

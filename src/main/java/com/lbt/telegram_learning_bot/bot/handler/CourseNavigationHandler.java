@@ -2,27 +2,25 @@ package com.lbt.telegram_learning_bot.bot.handler;
 
 import com.lbt.telegram_learning_bot.bot.BotState;
 import com.lbt.telegram_learning_bot.bot.UserContext;
-import com.lbt.telegram_learning_bot.entity.*;
+import com.lbt.telegram_learning_bot.entity.Block;
+import com.lbt.telegram_learning_bot.entity.Question;
+import com.lbt.telegram_learning_bot.platform.BotButton;
+import com.lbt.telegram_learning_bot.platform.BotKeyboard;
 import com.lbt.telegram_learning_bot.platform.MessageSender;
-import com.lbt.telegram_learning_bot.repository.*;
+import com.lbt.telegram_learning_bot.repository.AdminUserRepository;
 import com.lbt.telegram_learning_bot.service.NavigationService;
 import com.lbt.telegram_learning_bot.service.UserSessionService;
 import com.lbt.telegram_learning_bot.service.UserSettingsService;
-import com.pengrad.telegrambot.TelegramBot;
-
-
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 import java.util.List;
 
 import static com.lbt.telegram_learning_bot.util.Constants.*;
-import com.lbt.telegram_learning_bot.platform.BotButton;
-import com.lbt.telegram_learning_bot.platform.BotKeyboard;
 
 @Slf4j
 public class CourseNavigationHandler extends BaseHandler {
+
     private final KeyboardBuilder keyboardBuilder;
 
     public CourseNavigationHandler(MessageSender messageSender,
@@ -36,15 +34,12 @@ public class CourseNavigationHandler extends BaseHandler {
     }
 
     // ================== Публичные методы для диспетчера ==================
+
     public void handleMyCourses(Long userId, Integer messageId, int page) {
-        log.info("handleMyCourses called: userId={}, messageId={}, page={}", userId, messageId, page);
+        log.debug("handleMyCourses: userId={}, messageId={}, page={}", userId, messageId, page);
         int pageSize = userSettingsService.getSettings(userId).getPageSize();
-        log.info("pageSize={}", pageSize);
         showMyCourses(userId, messageId, page, pageSize);
     }
-
-
-
 
     public void handleSelectTopic(Long userId, Integer messageId, Long topicId) {
         clearMediaMessages(userId);
@@ -55,7 +50,6 @@ public class CourseNavigationHandler extends BaseHandler {
 
         List<Block> blocks = navigationService.getTopicBlocksWithQuestions(topicId);
         if (blocks.isEmpty()) {
-            // Вместо главного меню покажем клавиатуру с возвратом к списку тем
             String text = MSG_TOPIC_NO_BLOCKS;
             BotKeyboard keyboard = new BotKeyboard().addRow(BotButton.callback(BUTTON_BACK, CALLBACK_BACK_TO_TOPICS));
             if (messageId != null) {
@@ -101,11 +95,9 @@ public class CourseNavigationHandler extends BaseHandler {
             int correct = context.getCorrectAnswers();
             int wrong = context.getWrongAnswers();
             int total = correct + wrong;
-            String stats = String.format(FORMAT_TOPIC_COMPLETED,
-                    correct, wrong, total);
+            String stats = String.format(FORMAT_TOPIC_COMPLETED, correct, wrong, total);
 
-            BotKeyboard keyboard = new BotKeyboard().addRow(BotButton.callback(BUTTON_BACK, CALLBACK_BACK_TO_TOPICS)
-            );
+            BotKeyboard keyboard = new BotKeyboard().addRow(BotButton.callback(BUTTON_BACK, CALLBACK_BACK_TO_TOPICS));
 
             if (messageId != null) {
                 editMessage(userId, messageId, stats, keyboard);
@@ -135,6 +127,7 @@ public class CourseNavigationHandler extends BaseHandler {
             handleBackToSections(userId, messageId);
         }
     }
+
     public void promptSearch(Long userId, Integer messageId) {
         String text = MSG_SEARCH_PROMPT;
         if (messageId != null) {
@@ -144,6 +137,7 @@ public class CourseNavigationHandler extends BaseHandler {
         }
         sessionService.updateSessionState(userId, BotState.AWAITING_SEARCH_QUERY);
     }
+
     public void handleAllCourses(Long userId, Integer messageId, int page) {
         int pageSize = userSettingsService.getSettings(userId).getPageSize();
         showAllCourses(userId, messageId, page, pageSize);
@@ -153,7 +147,7 @@ public class CourseNavigationHandler extends BaseHandler {
         UserContext context = sessionService.getCurrentContext(userId);
         context.setCurrentPage(page);
         sessionService.updateSessionContext(userId, context);
-        int pageSize = userSettingsService.getSettings(userId).getPageSize();  // получить размер
+        int pageSize = userSettingsService.getSettings(userId).getPageSize();
 
         switch (source) {
             case SOURCE_MY_COURSES:
@@ -201,7 +195,7 @@ public class CourseNavigationHandler extends BaseHandler {
         String source = context.getCoursesListSource();
         Integer page = context.getPreviousCoursesPage();
         if (page == null) page = 0;
-        int pageSize = userSettingsService.getSettings(userId).getPageSize();  // получить размер
+        int pageSize = userSettingsService.getSettings(userId).getPageSize();
 
         if (SOURCE_MY_COURSES.equals(source)) {
             showMyCourses(userId, messageId, page, pageSize);
@@ -218,7 +212,7 @@ public class CourseNavigationHandler extends BaseHandler {
             showAllCourses(userId, messageId, page, pageSize);
         }
     }
-    // В handleSelectCourse:
+
     public void handleSelectCourse(Long userId, Integer messageId, Long courseId) {
         clearMediaMessages(userId);
         UserContext context = sessionService.getCurrentContext(userId);
@@ -228,11 +222,10 @@ public class CourseNavigationHandler extends BaseHandler {
         context.setPreviousMenuState(prevState.name());
         context.setCoursesListSource(prevState.name());
         sessionService.updateSession(userId, BotState.COURSE_SECTIONS, context);
-        int pageSize = userSettingsService.getSettings(userId).getPageSize();  // добавить
-        showCourseSections(userId, messageId, courseId, 0, pageSize);         // добавить pageSize
+        int pageSize = userSettingsService.getSettings(userId).getPageSize();
+        showCourseSections(userId, messageId, courseId, 0, pageSize);
     }
 
-    // В handleSelectSection:
     public void handleSelectSection(Long userId, Integer messageId, Long sectionId) {
         clearMediaMessages(userId);
         UserContext context = sessionService.getCurrentContext(userId);
@@ -241,17 +234,16 @@ public class CourseNavigationHandler extends BaseHandler {
         context.setCurrentPage(0);
         context.setPreviousMenuState(sessionService.getCurrentState(userId).name());
         sessionService.updateSession(userId, BotState.SECTION_TOPICS, context);
-        int pageSize = userSettingsService.getSettings(userId).getPageSize();  // добавить
-        showSectionTopics(userId, messageId, sectionId, 0, pageSize);         // добавить pageSize
+        int pageSize = userSettingsService.getSettings(userId).getPageSize();
+        showSectionTopics(userId, messageId, sectionId, 0, pageSize);
     }
 
-    // В handleBackToSections:
     public void handleBackToSections(Long userId, Integer messageId) {
         clearMediaMessages(userId);
         UserContext context = sessionService.getCurrentContext(userId);
         if (context.getCurrentCourseId() != null) {
             int page = context.getPreviousSectionPage() != null ? context.getPreviousSectionPage() : 0;
-            int pageSize = userSettingsService.getSettings(userId).getPageSize();  // добавить
+            int pageSize = userSettingsService.getSettings(userId).getPageSize();
             showCourseSections(userId, messageId, context.getCurrentCourseId(), page, pageSize);
             sessionService.updateSessionState(userId, BotState.COURSE_SECTIONS);
         } else {
@@ -259,13 +251,12 @@ public class CourseNavigationHandler extends BaseHandler {
         }
     }
 
-    // В handleBackToTopics:
     public void handleBackToTopics(Long userId, Integer messageId) {
         clearMediaMessages(userId);
         UserContext context = sessionService.getCurrentContext(userId);
         if (context.getCurrentSectionId() != null) {
             int page = context.getPreviousTopicPage() != null ? context.getPreviousTopicPage() : 0;
-            int pageSize = userSettingsService.getSettings(userId).getPageSize();  // добавить
+            int pageSize = userSettingsService.getSettings(userId).getPageSize();
             showSectionTopics(userId, messageId, context.getCurrentSectionId(), page, pageSize);
             sessionService.updateSessionState(userId, BotState.SECTION_TOPICS);
         } else {
@@ -273,12 +264,11 @@ public class CourseNavigationHandler extends BaseHandler {
         }
     }
 
-    // В handleSearchQuery:
     public void handleSearchQuery(Long userId, String query) {
         UserContext context = sessionService.getCurrentContext(userId);
         context.setSearchQuery(query);
         sessionService.updateSessionContext(userId, context);
-        int pageSize = userSettingsService.getSettings(userId).getPageSize();  // добавить
+        int pageSize = userSettingsService.getSettings(userId).getPageSize();
         var result = navigationService.getFoundCoursesPage(query, 0, pageSize);
         if (result.getItems().isEmpty()) {
             sendMessage(userId, "😕 По запросу \"" + query + "\" ничего не найдено.", createSearchNotFoundKeyboard());
@@ -292,10 +282,14 @@ public class CourseNavigationHandler extends BaseHandler {
     }
 
     // ================== Внутренние методы навигации ==================
+
     private void showMyCourses(Long userId, Integer messageId, int page, int pageSize) {
-        log.info("showMyCourses: userId={}, messageId={}, page={}, pageSize={}", userId, messageId, page, pageSize);
+        log.debug("showMyCourses: userId={}, page={}, pageSize={}", userId, page, pageSize);
         var result = navigationService.getMyCoursesPage(userId, page, pageSize);
-        log.info("result: items={}, totalPages={}, totalItems={}", result.getItems().size(), result.getTotalPages(), result.getTotalItems());if (result.getItems().isEmpty()) {
+        log.debug("result: items={}, totalPages={}, totalItems={}",
+                result.getItems().size(), result.getTotalPages(), result.getTotalItems());
+
+        if (result.getItems().isEmpty()) {
             String text = MSG_NO_MY_COURSES;
             if (messageId != null) {
                 editMessage(userId, messageId, text, createBackToMainKeyboard());
@@ -315,6 +309,7 @@ public class CourseNavigationHandler extends BaseHandler {
     }
 
     private void showAllCourses(Long userId, Integer messageId, int page, int pageSize) {
+        log.debug("showAllCourses: userId={}, page={}, pageSize={}", userId, page, pageSize);
         var result = navigationService.getAllCoursesPage(page, pageSize);
         if (result.getItems().isEmpty()) {
             String text = MSG_NO_COURSES;
@@ -364,7 +359,6 @@ public class CourseNavigationHandler extends BaseHandler {
         var result = navigationService.getTopicsPage(sectionId, page, pageSize);
         String sectionTitle = navigationService.getSectionTitle(sectionId);
         String sectionDescription = navigationService.getSectionDescription(sectionId);
-
         Instant lastAccessed = navigationService.getSectionLastAccessed(userId, sectionId);
         String lastAccessedStr = formatLastAccessed(lastAccessed);
 
@@ -392,7 +386,7 @@ public class CourseNavigationHandler extends BaseHandler {
     }
 
     public void showBlockContent(Long userId, Integer messageId, Long blockId) {
-        UserContext context = sessionService.getCurrentContext(userId); // добавить
+        UserContext context = sessionService.getCurrentContext(userId);
         navigationService.getBlockWithImages(blockId).ifPresentOrElse(block -> {
             String text = block.getTextContent();
             BotKeyboard keyboard = keyboardBuilder.buildBlockNavigationKeyboardBot(context);

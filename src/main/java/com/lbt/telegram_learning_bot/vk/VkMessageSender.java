@@ -20,7 +20,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class VkMessageSender implements MessageSender {
 
     private final VkHttpClient vkHttpClient;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper; // внедряем Spring-бин
 
     // Хранилище последних ID сообщений, отправленных ботом для каждого пользователя
     private final Map<Long, Integer> lastBotMessageIds = new ConcurrentHashMap<>();
@@ -102,8 +102,6 @@ public class VkMessageSender implements MessageSender {
         log.warn("[VK] sendImageGroup not implemented");
         return new ArrayList<>();
     }
-
-// VkMessageSender.java — добавьте реализацию sendDocument
 
     @Override
     public Integer sendDocument(long userId, byte[] data, String fileName, String caption, BotKeyboard keyboard) {

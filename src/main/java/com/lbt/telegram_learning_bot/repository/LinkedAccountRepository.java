@@ -6,8 +6,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
 import java.util.Optional;
-import com.lbt.telegram_learning_bot.platform.BotButton;
-import com.lbt.telegram_learning_bot.platform.BotKeyboard;
 
 public interface LinkedAccountRepository extends JpaRepository<LinkedAccount, Long> {
 

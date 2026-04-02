@@ -1,16 +1,13 @@
 package com.lbt.telegram_learning_bot.entity;
 
 import jakarta.persistence.*;
-import lombok.Getter;
-import lombok.Setter;
-import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.Instant;
-import static com.lbt.telegram_learning_bot.util.Constants.*;
-import com.lbt.telegram_learning_bot.platform.BotButton;
-import com.lbt.telegram_learning_bot.platform.BotKeyboard;
 
 @Entity
 @Table(name = "user_test_result", uniqueConstraints = @UniqueConstraint(columnNames = {"user_id", "test_type", "test_id"}))

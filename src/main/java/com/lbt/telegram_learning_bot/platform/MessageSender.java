@@ -1,11 +1,6 @@
 package com.lbt.telegram_learning_bot.platform;
 
-import com.lbt.telegram_learning_bot.entity.BlockImage;
-import com.lbt.telegram_learning_bot.entity.QuestionImage;
-
 import java.util.List;
-import com.lbt.telegram_learning_bot.platform.BotButton;
-import com.lbt.telegram_learning_bot.platform.BotKeyboard;
 
 /**
  * Абстракция отправки сообщений конкретной платформы.

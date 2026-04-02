@@ -1,24 +1,18 @@
 package com.lbt.telegram_learning_bot.bot.handler;
 
 import com.lbt.telegram_learning_bot.bot.BotState;
-import com.lbt.telegram_learning_bot.bot.UserContext;
 import com.lbt.telegram_learning_bot.entity.UserSettings;
+import com.lbt.telegram_learning_bot.platform.BotButton;
+import com.lbt.telegram_learning_bot.platform.BotKeyboard;
 import com.lbt.telegram_learning_bot.platform.MessageSender;
 import com.lbt.telegram_learning_bot.repository.AdminUserRepository;
 import com.lbt.telegram_learning_bot.service.NavigationService;
 import com.lbt.telegram_learning_bot.service.UserProgressCleanupService;
 import com.lbt.telegram_learning_bot.service.UserSessionService;
 import com.lbt.telegram_learning_bot.service.UserSettingsService;
-import com.pengrad.telegrambot.TelegramBot;
-
-
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 
 import static com.lbt.telegram_learning_bot.util.Constants.*;
-
-import com.lbt.telegram_learning_bot.platform.BotButton;
-import com.lbt.telegram_learning_bot.platform.BotKeyboard;
 
 @Slf4j
 public class SettingsHandler extends BaseHandler {

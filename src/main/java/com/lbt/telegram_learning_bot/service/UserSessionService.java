@@ -21,9 +21,6 @@ public class UserSessionService {
 
     private final UserSessionRepository sessionRepository;
     private final ObjectMapper objectMapper;
-    // UserLockService инжектируется для совместимости; блокировка выполняется на уровне обработчиков (handlers)
-    @SuppressWarnings("unused")
-    private final UserLockService userLockService;
 
     @Transactional
     public UserSession getOrCreateSession(Long userId) {

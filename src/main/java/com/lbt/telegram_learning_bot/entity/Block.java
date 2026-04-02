@@ -1,19 +1,18 @@
 package com.lbt.telegram_learning_bot.entity;
 
 import jakarta.persistence.*;
-import lombok.Getter;
-import lombok.Setter;
-import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import static com.lbt.telegram_learning_bot.util.Constants.*;
-import com.lbt.telegram_learning_bot.platform.BotButton;
-import com.lbt.telegram_learning_bot.platform.BotKeyboard;
+
+import static com.lbt.telegram_learning_bot.util.Constants.ENTITY_BLOCK;
 
 @Entity
 @Table(name = ENTITY_BLOCK)

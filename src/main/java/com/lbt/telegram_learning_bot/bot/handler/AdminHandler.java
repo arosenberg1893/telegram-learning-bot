@@ -1,5 +1,4 @@
 package com.lbt.telegram_learning_bot.bot.handler;
-import com.lbt.telegram_learning_bot.repository.UserStudyTimeRepository;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lbt.telegram_learning_bot.bot.BotState;
@@ -10,28 +9,24 @@ import com.lbt.telegram_learning_bot.dto.SectionNameDescDto;
 import com.lbt.telegram_learning_bot.dto.TopicImportDto;
 import com.lbt.telegram_learning_bot.entity.*;
 import com.lbt.telegram_learning_bot.exception.InvalidJsonException;
+import com.lbt.telegram_learning_bot.platform.BotButton;
+import com.lbt.telegram_learning_bot.platform.BotKeyboard;
+import com.lbt.telegram_learning_bot.platform.FileDownloader;
 import com.lbt.telegram_learning_bot.platform.MessageSender;
 import com.lbt.telegram_learning_bot.repository.*;
 import com.lbt.telegram_learning_bot.service.CourseImportService;
 import com.lbt.telegram_learning_bot.service.NavigationService;
 import com.lbt.telegram_learning_bot.service.UserSessionService;
 import com.lbt.telegram_learning_bot.service.UserSettingsService;
-import com.pengrad.telegrambot.model.Message;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
 
 import static com.lbt.telegram_learning_bot.util.Constants.*;
-import com.lbt.telegram_learning_bot.platform.BotButton;
-import com.lbt.telegram_learning_bot.platform.BotKeyboard;
-import com.lbt.telegram_learning_bot.platform.FileDownloader;
 
 @Slf4j
 public class AdminHandler extends BaseHandler {
@@ -68,11 +63,12 @@ public class AdminHandler extends BaseHandler {
                         QuestionImageRepository questionImageRepository,
                         AdminUserRepository adminUserRepository,
                         UserProgressRepository userProgressRepository,
-                            UserStudyTimeRepository userStudyTimeRepository,
-                            ObjectMapper objectMapper,
+                        UserStudyTimeRepository userStudyTimeRepository,
+                        ObjectMapper objectMapper,
                         UserSettingsService userSettingsService) {
         super(messageSender, sessionService, navigationService, adminUserRepository, userSettingsService);
         this.courseImportService = courseImportService;
+        this.fileDownloader = fileDownloader;
         this.courseRepository = courseRepository;
         this.sectionRepository = sectionRepository;
         this.topicRepository = topicRepository;
@@ -86,10 +82,9 @@ public class AdminHandler extends BaseHandler {
         this.userStudyTimeRepository = userStudyTimeRepository;
         this.objectMapper = objectMapper;
         this.keyboardBuilder = keyboardBuilder;
-        this.fileDownloader = fileDownloader;
     }
 
-    // ================== Методы диспетчера и внутренние ==================
+    // ================== Публичные методы ==================
 
     public void handleRetry(Long userId, Integer messageId) {
         BotState state = sessionService.getCurrentState(userId);
@@ -102,44 +97,38 @@ public class AdminHandler extends BaseHandler {
         }
     }
 
-    // Для Telegram
-    public void handleDocument(Long userId, Message message) {
-        BotState currentState = sessionService.getCurrentState(userId);
-        if (currentState == BotState.AWAITING_COURSE_JSON) {
-            handleCourseJson(userId, message);
-        } else if (currentState == BotState.EDIT_COURSE_NAME_DESC) {
-            handleCourseNameDescJson(userId, message);
-        } else if (currentState == BotState.EDIT_SECTION_NAME_DESC) {
-            handleSectionNameDescJson(userId, message);
-        } else if (currentState == BotState.EDIT_TOPIC_JSON) {
-            handleTopicJson(userId, message);
-        } else if (currentState == BotState.AWAITING_IMAGE) {
-            handleImageUpload(userId, message);
-        } else {
-            sendMessage(userId, MSG_UNEXPECTED_FILE, createCancelKeyboard());
-        }
-    }
-
-    // Для VK
+    // Унифицированная точка входа для документов (Telegram и VK)
     public void handleDocument(Long userId, Object fileReference) {
-        BotState currentState = sessionService.getCurrentState(userId);
-        if (currentState == BotState.AWAITING_COURSE_JSON) {
-            handleCourseJson(userId, fileReference);
-        } else if (currentState == BotState.EDIT_COURSE_NAME_DESC) {
-            handleCourseNameDescJson(userId, fileReference);
-        } else if (currentState == BotState.EDIT_SECTION_NAME_DESC) {
-            handleSectionNameDescJson(userId, fileReference);
-        } else if (currentState == BotState.EDIT_TOPIC_JSON) {
-            handleTopicJson(userId, fileReference);
-        } else if (currentState == BotState.AWAITING_IMAGE) {
-            handleImageUpload(userId, null);
-        } else {
-            sendMessage(userId, MSG_UNEXPECTED_FILE, createCancelKeyboard());
+        try {
+            byte[] fileContent = fileDownloader.downloadFile(fileReference);
+            BotState currentState = sessionService.getCurrentState(userId);
+            if (currentState == BotState.AWAITING_COURSE_JSON) {
+                processCourseJson(userId, fileContent);
+            } else if (currentState == BotState.EDIT_COURSE_NAME_DESC) {
+                processCourseNameDescJson(userId, fileContent);
+            } else if (currentState == BotState.EDIT_SECTION_NAME_DESC) {
+                processSectionNameDescJson(userId, fileContent);
+            } else if (currentState == BotState.EDIT_TOPIC_JSON) {
+                processTopicJson(userId, fileContent);
+            } else {
+                sendMessage(userId, MSG_UNEXPECTED_FILE, createCancelKeyboard());
+            }
+        } catch (Exception e) {
+            log.error("Error processing document for user {}", userId, e);
+            sendMessage(userId, MSG_JSON_PARSE_ERROR, createRetryOrCancelKeyboard());
         }
     }
 
-    public void handleImageUpload(Long userId, Message message) {
-        handleImageUploadInternal(userId, message);
+    // Для изображений (Telegram). VK пока не поддерживает загрузку изображений.
+    public void handleImageUpload(Long userId, Object fileReference) {
+        // VK не поддерживает загрузку изображений через бот-сообщения
+        if (fileReference == null) {
+            sendMessage(userId, "Загрузка изображений через VK не поддерживается.", createCancelKeyboard());
+            return;
+        }
+        // Для Telegram здесь должна быть реализация, но она не требуется в рамках текущего рефакторинга
+        // Оставляем заглушку, т.к. оригинальный код выбрасывал исключение.
+        sendMessage(userId, MSG_PLEASE_SEND_PHOTO, createCancelKeyboard());
     }
 
     public void promptCreateCourse(Long userId, Integer messageId) {
@@ -195,17 +184,20 @@ public class AdminHandler extends BaseHandler {
         sessionService.updateSessionContext(userId, context);
 
         String text = MSG_WHAT_TO_CHANGE;
-        BotKeyboard keyboard = new BotKeyboard().addRow(BotButton.callback(BUTTON_NAME_DESC, CALLBACK_EDIT_COURSE_ACTION + ":" + ACTION_NAME_DESC),
-                BotButton.callback(BUTTON_SECTIONS, CALLBACK_EDIT_COURSE_ACTION + ":" + ACTION_SECTIONS));
-        keyboard.addRow(BotButton.callback(BUTTON_BACK, CALLBACK_EDIT_COURSE));
+        BotKeyboard keyboard = new BotKeyboard().addRow(
+                BotButton.callback(BUTTON_NAME_DESC, CALLBACK_EDIT_COURSE_ACTION + ":" + ACTION_NAME_DESC),
+                BotButton.callback(BUTTON_SECTIONS, CALLBACK_EDIT_COURSE_ACTION + ":" + ACTION_SECTIONS)
+        ).addRow(BotButton.callback(BUTTON_BACK, CALLBACK_EDIT_COURSE));
         editMessage(userId, messageId, text, keyboard);
         sessionService.updateSessionState(userId, BotState.EDIT_COURSE_CHOOSE_ACTION);
     }
 
     public void handleSelectCourseForDelete(Long userId, Integer messageId, Long courseId) {
         String text = MSG_CONFIRM_DELETE_COURSE;
-        BotKeyboard keyboard = new BotKeyboard().addRow(BotButton.callback(BUTTON_YES_DELETE, CALLBACK_CONFIRM_DELETE_COURSE + ":" + courseId),
-                BotButton.callback(BUTTON_NO, CALLBACK_EDIT_COURSE));
+        BotKeyboard keyboard = new BotKeyboard().addRow(
+                BotButton.callback(BUTTON_YES_DELETE, CALLBACK_CONFIRM_DELETE_COURSE + ":" + courseId),
+                BotButton.callback(BUTTON_NO, CALLBACK_EDIT_COURSE)
+        );
         editMessage(userId, messageId, text, keyboard);
     }
 
@@ -231,9 +223,10 @@ public class AdminHandler extends BaseHandler {
         sessionService.updateSessionContext(userId, context);
 
         String text = MSG_WHAT_TO_CHANGE_SECTION;
-        BotKeyboard keyboard = new BotKeyboard().addRow(BotButton.callback(BUTTON_NAME_DESC, CALLBACK_EDIT_SECTION_ACTION + ":" + ACTION_NAME_DESC),
-                BotButton.callback(BUTTON_TOPICS, CALLBACK_EDIT_SECTION_ACTION + ":" + ACTION_TOPICS));
-        keyboard.addRow(BotButton.callback(BUTTON_BACK, CALLBACK_ADMIN_BACK_TO_SECTIONS));
+        BotKeyboard keyboard = new BotKeyboard().addRow(
+                BotButton.callback(BUTTON_NAME_DESC, CALLBACK_EDIT_SECTION_ACTION + ":" + ACTION_NAME_DESC),
+                BotButton.callback(BUTTON_TOPICS, CALLBACK_EDIT_SECTION_ACTION + ":" + ACTION_TOPICS)
+        ).addRow(BotButton.callback(BUTTON_BACK, CALLBACK_ADMIN_BACK_TO_SECTIONS));
         editMessage(userId, messageId, text, keyboard);
         sessionService.updateSessionState(userId, BotState.EDIT_SECTION_NAME_DESC);
     }
@@ -267,47 +260,26 @@ public class AdminHandler extends BaseHandler {
         sessionService.updateSessionState(userId, BotState.EDIT_TOPIC_JSON);
     }
 
-    // В AdminHandler.java, метод handleConfirmDeleteCourse:
+    @Transactional
     public void handleConfirmDeleteCourse(Long userId, Integer messageId, Long courseId) {
-        synchronized (userId) {
-            try {
-                userStudyTimeRepository.deleteByCourseId(courseId);
-                userProgressRepository.deleteByCourseId(courseId);
-                courseRepository.deleteById(courseId);
-                UserContext context = sessionService.getCurrentContext(userId);
-                if (context.getCurrentCourseId() != null && context.getCurrentCourseId().equals(courseId)) {
-                    context.setCurrentCourseId(null);
-                    sessionService.updateSessionContext(userId, context);
-                }
-                editMessage(userId, messageId, MSG_COURSE_DELETED, createBackToMainKeyboard());
-            } catch (Exception e) {
-                log.error("Error deleting course", e);
-                editMessage(userId, messageId, MSG_ERROR_DELETING_COURSE, createBackToMainKeyboard());
-            }
-            sessionService.updateSessionState(userId, BotState.MAIN_MENU);
-        }
-    }
-    // Обработка JSON для Telegram (Message)
-    private void handleCourseJson(Long userId, Message message) {
         try {
-            byte[] fileContent = fileDownloader.downloadFile(message);
-            processCourseJson(userId, fileContent);
+            userStudyTimeRepository.deleteByCourseId(courseId);
+            userProgressRepository.deleteByCourseId(courseId);
+            courseRepository.deleteById(courseId);
+            UserContext context = sessionService.getCurrentContext(userId);
+            if (context.getCurrentCourseId() != null && context.getCurrentCourseId().equals(courseId)) {
+                context.setCurrentCourseId(null);
+                sessionService.updateSessionContext(userId, context);
+            }
+            editMessage(userId, messageId, MSG_COURSE_DELETED, createBackToMainKeyboard());
         } catch (Exception e) {
-            log.error("Error processing course JSON", e);
-            sendMessage(userId, MSG_JSON_PARSE_ERROR, createRetryOrCancelKeyboard());
+            log.error("Error deleting course", e);
+            editMessage(userId, messageId, MSG_ERROR_DELETING_COURSE, createBackToMainKeyboard());
         }
+        sessionService.updateSessionState(userId, BotState.MAIN_MENU);
     }
 
-    // Обработка JSON для VK (Object)
-    private void handleCourseJson(Long userId, Object fileReference) {
-        try {
-            byte[] fileContent = fileDownloader.downloadFile(fileReference);
-            processCourseJson(userId, fileContent);
-        } catch (Exception e) {
-            log.error("Error processing course JSON", e);
-            sendMessage(userId, MSG_JSON_PARSE_ERROR, createRetryOrCancelKeyboard());
-        }
-    }
+    // ================== Внутренние методы обработки JSON ==================
 
     private void processCourseJson(Long userId, byte[] fileContent) {
         Integer progressMessageId = sendProgressMessage(userId);
@@ -332,122 +304,69 @@ public class AdminHandler extends BaseHandler {
             log.error("Error importing course from JSON", e);
             sendMessage(userId, MSG_JSON_PARSE_ERROR, createRetryOrCancelKeyboard());
         } finally {
-            if (progressMessageId != null) {
-                deleteMessage(userId, progressMessageId);
+            if (progressMessageId != null) deleteMessage(userId, progressMessageId);
+        }
+    }
+
+    private void processCourseNameDescJson(Long userId, byte[] fileContent) {
+        try {
+            InputStream inputStream = new ByteArrayInputStream(fileContent);
+            CourseNameDescDto dto = objectMapper.readValue(inputStream, CourseNameDescDto.class);
+            UserContext context = sessionService.getCurrentContext(userId);
+            Long courseId = context.getEditingCourseId();
+            if (courseId == null) {
+                sendMessage(userId, MSG_COURSE_NOT_SELECTED, createBackToMainKeyboard());
+                sessionService.updateSessionState(userId, BotState.MAIN_MENU);
+                return;
             }
-        }
-    }
-
-    // Аналогично для CourseNameDesc, SectionNameDesc, TopicJson
-    private void handleCourseNameDescJson(Long userId, Message message) {
-        try {
-            byte[] fileContent = fileDownloader.downloadFile(message);
-            processCourseNameDescJson(userId, fileContent);
+            Course oldCourse = courseRepository.findById(courseId).orElseThrow();
+            String oldTitle = oldCourse.getTitle();
+            String oldDesc = oldCourse.getDescription();
+            Course updated = courseImportService.updateCourseNameDesc(courseId, dto.getTitle(), dto.getDescription());
+            String response = String.format(FORMAT_COURSE_UPDATE,
+                    oldTitle, updated.getTitle(), oldDesc, updated.getDescription());
+            sendMessage(userId, response, createBackToMainKeyboard());
+            sessionService.updateSessionState(userId, BotState.MAIN_MENU);
         } catch (Exception e) {
             log.error("Error processing course name/desc JSON", e);
             sendMessage(userId, MSG_JSON_PARSE_ERROR, createRetryOrCancelKeyboard());
         }
     }
 
-    private void handleCourseNameDescJson(Long userId, Object fileReference) {
+    private void processSectionNameDescJson(Long userId, byte[] fileContent) {
         try {
-            byte[] fileContent = fileDownloader.downloadFile(fileReference);
-            processCourseNameDescJson(userId, fileContent);
-        } catch (Exception e) {
-            log.error("Error processing course name/desc JSON", e);
-            sendMessage(userId, MSG_JSON_PARSE_ERROR, createRetryOrCancelKeyboard());
-        }
-    }
-
-    private void processCourseNameDescJson(Long userId, byte[] fileContent) throws Exception {
-        InputStream inputStream = new ByteArrayInputStream(fileContent);
-        CourseNameDescDto dto = objectMapper.readValue(inputStream, CourseNameDescDto.class);
-        UserContext context = sessionService.getCurrentContext(userId);
-        Long courseId = context.getEditingCourseId();
-        if (courseId == null) {
-            sendMessage(userId, MSG_COURSE_NOT_SELECTED, createBackToMainKeyboard());
-            sessionService.updateSessionState(userId, BotState.MAIN_MENU);
-            return;
-        }
-        Course oldCourse = courseRepository.findById(courseId).orElseThrow();
-        String oldTitle = oldCourse.getTitle();
-        String oldDesc = oldCourse.getDescription();
-        Course updated = courseImportService.updateCourseNameDesc(courseId, dto.getTitle(), dto.getDescription());
-        String response = String.format(FORMAT_COURSE_UPDATE,
-                oldTitle, updated.getTitle(), oldDesc, updated.getDescription());
-        sendMessage(userId, response, createBackToMainKeyboard());
-        sessionService.updateSessionState(userId, BotState.MAIN_MENU);
-    }
-
-    private void handleSectionNameDescJson(Long userId, Message message) {
-        try {
-            byte[] fileContent = fileDownloader.downloadFile(message);
-            processSectionNameDescJson(userId, fileContent);
+            InputStream inputStream = new ByteArrayInputStream(fileContent);
+            SectionNameDescDto dto = objectMapper.readValue(inputStream, SectionNameDescDto.class);
+            UserContext context = sessionService.getCurrentContext(userId);
+            Long sectionId = context.getEditingSectionId();
+            if (sectionId == null) {
+                sendMessage(userId, MSG_SECTION_NOT_SELECTED, createBackToMainKeyboard());
+                sessionService.updateSessionState(userId, BotState.MAIN_MENU);
+                return;
+            }
+            Section oldSection = sectionRepository.findById(sectionId).orElseThrow();
+            String oldTitle = oldSection.getTitle();
+            String oldDesc = oldSection.getDescription();
+            Section updated = courseImportService.updateSectionNameDesc(sectionId, dto.getTitle(), dto.getDescription());
+            Long courseId = updated.getCourse().getId();
+            String response = String.format(FORMAT_SECTION_UPDATE,
+                    oldTitle, updated.getTitle(), oldDesc, updated.getDescription());
+            sendMessage(userId, response);
+            context.setEditingCourseId(courseId);
+            sessionService.updateSessionContext(userId, context);
+            var result = navigationService.getSectionsPage(courseId, 0, ADMIN_PAGE_SIZE);
+            String text = MSG_SELECT_SECTION;
+            BotKeyboard keyboard = keyboardBuilder.buildSectionsKeyboardForAdminBot(
+                    result, courseId, CALLBACK_SELECT_SECTION_FOR_EDIT, CALLBACK_EDIT_COURSE);
+            sendMessage(userId, text, keyboard);
+            sessionService.updateSessionState(userId, BotState.EDIT_COURSE_SECTION_CHOOSE);
         } catch (Exception e) {
             log.error("Error processing section name/desc JSON", e);
             sendMessage(userId, MSG_JSON_PARSE_ERROR, createRetryOrCancelKeyboard());
         }
     }
 
-    private void handleSectionNameDescJson(Long userId, Object fileReference) {
-        try {
-            byte[] fileContent = fileDownloader.downloadFile(fileReference);
-            processSectionNameDescJson(userId, fileContent);
-        } catch (Exception e) {
-            log.error("Error processing section name/desc JSON", e);
-            sendMessage(userId, MSG_JSON_PARSE_ERROR, createRetryOrCancelKeyboard());
-        }
-    }
-
-    private void processSectionNameDescJson(Long userId, byte[] fileContent) throws Exception {
-        InputStream inputStream = new ByteArrayInputStream(fileContent);
-        SectionNameDescDto dto = objectMapper.readValue(inputStream, SectionNameDescDto.class);
-        UserContext context = sessionService.getCurrentContext(userId);
-        Long sectionId = context.getEditingSectionId();
-        if (sectionId == null) {
-            sendMessage(userId, MSG_SECTION_NOT_SELECTED, createBackToMainKeyboard());
-            sessionService.updateSessionState(userId, BotState.MAIN_MENU);
-            return;
-        }
-        Section oldSection = sectionRepository.findById(sectionId).orElseThrow();
-        String oldTitle = oldSection.getTitle();
-        String oldDesc = oldSection.getDescription();
-        Section updated = courseImportService.updateSectionNameDesc(sectionId, dto.getTitle(), dto.getDescription());
-        Long courseId = updated.getCourse().getId();
-        String response = String.format(FORMAT_SECTION_UPDATE,
-                oldTitle, updated.getTitle(), oldDesc, updated.getDescription());
-        sendMessage(userId, response);
-        context.setEditingCourseId(courseId);
-        sessionService.updateSessionContext(userId, context);
-        var result = navigationService.getSectionsPage(courseId, 0, ADMIN_PAGE_SIZE);
-        String text = MSG_SELECT_SECTION;
-        BotKeyboard keyboard = keyboardBuilder.buildSectionsKeyboardForAdminBot(
-                result, courseId, CALLBACK_SELECT_SECTION_FOR_EDIT, CALLBACK_EDIT_COURSE);
-        sendMessage(userId, text, keyboard);
-        sessionService.updateSessionState(userId, BotState.EDIT_COURSE_SECTION_CHOOSE);
-    }
-
-    private void handleTopicJson(Long userId, Message message) {
-        try {
-            byte[] fileContent = fileDownloader.downloadFile(message);
-            processTopicJson(userId, fileContent);
-        } catch (Exception e) {
-            log.error("Error processing topic JSON", e);
-            sendJsonErrorWithBackToTopics(userId, MSG_JSON_PARSE_ERROR);
-        }
-    }
-
-    private void handleTopicJson(Long userId, Object fileReference) {
-        try {
-            byte[] fileContent = fileDownloader.downloadFile(fileReference);
-            processTopicJson(userId, fileContent);
-        } catch (Exception e) {
-            log.error("Error processing topic JSON", e);
-            sendJsonErrorWithBackToTopics(userId, MSG_JSON_PARSE_ERROR);
-        }
-    }
-
-    private void processTopicJson(Long userId, byte[] fileContent) throws Exception {
+    private void processTopicJson(Long userId, byte[] fileContent) {
         Integer progressMessageId = sendProgressMessage(userId);
         try {
             InputStream inputStream = new ByteArrayInputStream(fileContent);
@@ -462,15 +381,15 @@ public class AdminHandler extends BaseHandler {
         } catch (InvalidJsonException e) {
             log.warn("Topic JSON validation error: {}", e.getMessage());
             sendJsonErrorWithBackToTopics(userId, e.getMessage());
+        } catch (Exception e) {
+            log.error("Error processing topic JSON", e);
+            sendJsonErrorWithBackToTopics(userId, MSG_JSON_PARSE_ERROR);
         } finally {
             if (progressMessageId != null) deleteMessage(userId, progressMessageId);
         }
     }
 
-    private void handleImageUploadInternal(Long userId, Message message) {
-        // Загрузка изображений через VK пока не поддерживается
-        throw new UnsupportedOperationException("Image upload not implemented for this platform");
-    }
+    // ================== Изображения ==================
 
     private void startImageUploadSequence(Long userId, Integer messageId, Long topicId) {
         List<BlockImage> blockImages = blockImageRepository.findPendingImagesByTopicId(topicId);
@@ -521,6 +440,8 @@ public class AdminHandler extends BaseHandler {
         context.setTargetEntityType(next.getEntityType());
         sessionService.updateSession(userId, BotState.AWAITING_IMAGE, context);
     }
+
+    // ================== Административные страницы ==================
 
     public void showEditCourseSectionsPage(Long userId, Integer messageId, Long courseId, int page) {
         UserContext context = sessionService.getCurrentContext(userId);
@@ -590,6 +511,11 @@ public class AdminHandler extends BaseHandler {
         }
     }
 
+    // Перегрузка для обратного вызова с параметрами
+    public void handleBackToTopicsFromEdit(Long userId, Integer messageId, Long sectionId, int page) {
+        showEditTopicsPage(userId, messageId, sectionId, page);
+    }
+
     public boolean isAdmin(Long userId) {
         return adminUserRepository.existsByUserId(userId);
     }
@@ -606,9 +532,7 @@ public class AdminHandler extends BaseHandler {
         showEditTopicsPage(userId, messageId, sectionId, page);
     }
 
-    public void handleBackToTopicsFromEdit(Long userId, Integer messageId, Long sectionId, int page) {
-        showEditTopicsPage(userId, messageId, sectionId, page);
-    }
+    // ================== Вспомогательные ==================
 
     private void sendJsonErrorWithBackToTopics(Long userId, String errorMessage) {
         UserContext context = sessionService.getCurrentContext(userId);

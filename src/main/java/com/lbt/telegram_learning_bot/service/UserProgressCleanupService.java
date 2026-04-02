@@ -1,11 +1,12 @@
 package com.lbt.telegram_learning_bot.service;
 
-import com.lbt.telegram_learning_bot.repository.*;
+import com.lbt.telegram_learning_bot.repository.UserMistakeRepository;
+import com.lbt.telegram_learning_bot.repository.UserProgressRepository;
+import com.lbt.telegram_learning_bot.repository.UserStudyTimeRepository;
+import com.lbt.telegram_learning_bot.repository.UserTestResultRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import com.lbt.telegram_learning_bot.platform.BotButton;
-import com.lbt.telegram_learning_bot.platform.BotKeyboard;
 
 @Service
 @RequiredArgsConstructor

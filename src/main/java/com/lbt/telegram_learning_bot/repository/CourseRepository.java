@@ -12,10 +12,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-import static com.lbt.telegram_learning_bot.util.Constants.*;
-import com.lbt.telegram_learning_bot.platform.BotButton;
-import com.lbt.telegram_learning_bot.platform.BotKeyboard;
-
 @Repository
 public interface CourseRepository extends JpaRepository<Course, Long> {
     // Можно добавить методы поиска по названию, если нужно
