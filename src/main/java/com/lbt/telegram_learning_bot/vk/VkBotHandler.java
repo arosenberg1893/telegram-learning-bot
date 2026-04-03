@@ -44,8 +44,6 @@ public class VkBotHandler {
     @Value("${vk.bot.page-size:3}")
     private int vkPageSize;
 
-    @Value("${app.base-url}")
-    private String appBaseUrl;
     @Value("${message.max-length:2000}")
     private int maxMessageLength;
 
