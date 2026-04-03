@@ -479,8 +479,8 @@ public class VkBotHandler {
         try {
             UserContext context = sessionService.getCurrentContext(internalUserId);
             String userName = context.getUserName() != null ? context.getUserName() : DEFAULT_USER_NAME;
-            String fileId = pdfExportService.saveStatisticsPdf(internalUserId, userName);
-            String downloadUrl = appBaseUrl + "/api/download/" + fileId;
+            // Получаем прямую ссылку на файл на Яндекс.Диске
+            String downloadUrl = pdfExportService.saveStatisticsPdf(internalUserId, userName);
             String message = "📊 Ваша статистика готова. Скачайте PDF по ссылке:\n" + downloadUrl +
                     "\n\nСсылка действительна 15 минут.";
             BotKeyboard keyboard = BotKeyboard.of(BotButton.callback(BUTTON_MAIN_MENU, CALLBACK_MAIN_MENU));

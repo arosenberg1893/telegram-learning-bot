@@ -13,6 +13,7 @@ import com.itextpdf.layout.properties.UnitValue;
 import com.lbt.telegram_learning_bot.entity.Course;
 import com.lbt.telegram_learning_bot.repository.CourseRepository;
 import com.lbt.telegram_learning_bot.repository.UserProgressRepository;
+import com.lbt.telegram_learning_bot.service.cloud.YandexDiskStorageService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.ClassPathResource;
@@ -31,10 +32,11 @@ import static com.lbt.telegram_learning_bot.util.Constants.*;
 @RequiredArgsConstructor
 public class PdfExportService {
 
-    private final FileStorageService fileStorageService;
     private final CourseRepository courseRepository;
     private final UserProgressRepository userProgressRepository;
     private final NavigationService navigationService;
+    private final YandexDiskStorageService yandexDiskStorage;
+    private final CloudStorageFacade cloudStorageFacade;
 
     private String formatStudyTime(long seconds) {
         long hours = seconds / 3600;
@@ -50,7 +52,7 @@ public class PdfExportService {
         byte[] pdfBytes = generateStatisticsPdf(userId, userName);
         String fileName = String.format("Статистика обучения %s на %s.pdf",
                 userName, LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH-mm")));
-        return fileStorageService.saveFile(pdfBytes, fileName);
+        return cloudStorageFacade.uploadWithFallback(pdfBytes, fileName);
     }
 
     public byte[] generateStatisticsPdf(Long userId, String userName) throws Exception {
