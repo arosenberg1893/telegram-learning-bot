@@ -106,15 +106,16 @@ public class MaterialPdfGenerator {
     }
 
     public byte[] generateSectionPdf(Section section, String userName, boolean includeQuestions) throws Exception {
-        // Проход 1: сбор TocEntry — каждый документ получает свой экземпляр шрифта
+        // Проход 1: сбор TocEntry
         List<TocEntry> raw = new ArrayList<>();
-        collectSectionToc(section, includeQuestions, raw);
+        int sectionNumber = section.getOrderIndex() + 1;
+        collectSectionToc(section, sectionNumber, includeQuestions, raw);
 
         int tocPages = measureTocPages(raw);
-        int offset   = 1 + tocPages;
+        int offset = 1 + tocPages;
         List<TocEntry> toc = applyOffset(raw, offset);
 
-        // Проход 2: финальный документ — свежий шрифт
+        // Проход 2: финальный документ
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         PdfDocument pdfDoc = new PdfDocument(new PdfWriter(baos));
         pdfDoc.setDefaultPageSize(PageSize.A4);
@@ -124,12 +125,10 @@ public class MaterialPdfGenerator {
 
         addTitlePage(doc, font, section.getTitle(), section.getDescription(), userName);
         renderToc(doc, pdfDoc, font, toc);
-        // Первый раздел/тема всегда начинается с новой страницы после оглавления
         doc.add(new AreaBreak(AreaBreakType.NEXT_PAGE));
-        renderSection(doc, font, section, includeQuestions);
+        renderSection(doc, font, section, sectionNumber, includeQuestions);
         addOutlines(pdfDoc, toc);
 
-        // Создаём именованные destinations для всех страниц (чтобы ссылки работали надёжно)
         for (int i = 1; i <= pdfDoc.getNumberOfPages(); i++) {
             String destName = "toc-dest-" + i;
             PdfExplicitDestination dest = PdfExplicitDestination.createFit(pdfDoc.getPage(i));
@@ -137,8 +136,7 @@ public class MaterialPdfGenerator {
         }
         doc.close();
 
-        // ← Исправляем футеры с правильным общим количеством страниц
-        fixFootersWithCorrectTotal(baos, section.getTitle());   // или course.getTitle()
+        fixFootersWithCorrectTotal(baos, section.getTitle());
         return baos.toByteArray();
     }
 
@@ -183,7 +181,7 @@ public class MaterialPdfGenerator {
     //  Проход 1: сбор TocEntry (рендеринг в буфер)
     // =========================================================================
 
-    private void collectSectionToc(Section section, boolean includeQuestions,
+    private void collectSectionToc(Section section, int sectionNumber, boolean includeQuestions,
                                    List<TocEntry> entries) throws Exception {
         ByteArrayOutputStream buf = new ByteArrayOutputStream();
         PdfDocument tmp = new PdfDocument(new PdfWriter(buf));
@@ -192,13 +190,17 @@ public class MaterialPdfGenerator {
         PdfFont font = loadFont();
 
         if (section.getTopics() != null) {
-            for (Topic t : getSortedTopics(section.getTopics())) {   // ← изменил
-                d.add(topicHeader(font, t.getTitle()));                    // ← сначала добавляем
-                entries.add(new TocEntry(t.getTitle(), 0, tmp.getNumberOfPages())); // ← потом записываем страницу
+            int topicNum = 1;
+            for (Topic t : getSortedTopics(section.getTopics())) {
+                // Формируем заголовок с номером
+                String numberedTitle = sectionNumber + "." + topicNum + " " + t.getTitle();
+                d.add(topicHeader(font, numberedTitle));
+                entries.add(new TocEntry(numberedTitle, 0, tmp.getNumberOfPages()));
                 if (hasText(t.getDescription())) d.add(descPara(font, t.getDescription()));
                 if (t.getBlocks() != null) {
                     for (Block b : t.getBlocks()) renderBlock(d, font, b, includeQuestions);
                 }
+                topicNum++;
             }
         }
         d.close();
@@ -346,13 +348,21 @@ public class MaterialPdfGenerator {
     //  Рендеринг контента (финальный документ)
     // =========================================================================
 
-    private void renderSection(Document doc, PdfFont font, Section section, boolean includeQuestions) {
+    private void renderSection(Document doc, PdfFont font, Section section, int sectionNumber, boolean includeQuestions) {
         List<Topic> topics = section.getTopics();
-        if (topics == null || topics.isEmpty()) { doc.add(bodyPara(font, "В разделе нет тем.")); return; }
-        for (Topic t : getSortedTopics(topics)) {                    // ← изменил
-            doc.add(topicHeader(font, t.getTitle()));
+        if (topics == null || topics.isEmpty()) {
+            doc.add(bodyPara(font, "В разделе нет тем."));
+            return;
+        }
+        int topicNum = 1;
+        for (Topic t : getSortedTopics(topics)) {
+            String numberedTitle = sectionNumber + "." + topicNum + " " + t.getTitle();
+            doc.add(topicHeader(font, numberedTitle));
             if (hasText(t.getDescription())) doc.add(descPara(font, t.getDescription()));
-            if (t.getBlocks() != null) for (Block b : t.getBlocks()) renderBlock(doc, font, b, includeQuestions);
+            if (t.getBlocks() != null) {
+                for (Block b : t.getBlocks()) renderBlock(doc, font, b, includeQuestions);
+            }
+            topicNum++;
         }
     }
 
