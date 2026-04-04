@@ -47,46 +47,80 @@ public class VkBotPoller {
     }
 
     private void pollLoop() {
-        try {
-            Map<String, String> server = vkHttpClient.getLongPollServer();
-            String key = server.get("key");
-            String serverUrl = server.get("server");
-            String ts = server.get("ts");
+        while (running.get()) {
+            try {
+                // Инициализация Long Poll сервера — с повтором при сетевых ошибках
+                Map<String, String> server = acquireLongPollServer();
+                if (server == null) continue;
 
-            while (running.get()) {
-                try {
-                    JsonNode response = vkHttpClient.getLongPollEvents(serverUrl, key, ts);
-                    if (response == null) {
-                        Thread.sleep(3000);
-                        continue;
-                    }
-                    if (response.has("failed")) {
-                        int failed = response.get("failed").asInt();
-                        if (failed == 1) {
-                            ts = response.get("ts").asText();
-                        } else {
-                            server = vkHttpClient.getLongPollServer();
-                            key = server.get("key");
-                            serverUrl = server.get("server");
-                            ts = server.get("ts");
+                String key       = server.get("key");
+                String serverUrl = server.get("server");
+                String ts        = server.get("ts");
+
+                while (running.get()) {
+                    try {
+                        JsonNode response = vkHttpClient.getLongPollEvents(serverUrl, key, ts);
+                        if (response == null) {
+                            Thread.sleep(3000);
+                            continue;
                         }
-                        continue;
-                    }
-                    ts = response.get("ts").asText();
-                    if (response.has("updates")) {
-                        for (JsonNode update : response.get("updates")) {
-                            updateHandler.handle(update);
+                        if (response.has("failed")) {
+                            int failed = response.get("failed").asInt();
+                            if (failed == 1) {
+                                ts = response.get("ts").asText();
+                            } else {
+                                // Сбрасываемся на переинициализацию сервера
+                                log.warn("[VK] Long Poll failed={}, reinitializing server", failed);
+                                break;
+                            }
+                            continue;
                         }
+                        ts = response.get("ts").asText();
+                        if (response.has("updates")) {
+                            for (JsonNode update : response.get("updates")) {
+                                updateHandler.handle(update);
+                            }
+                        }
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    } catch (Exception e) {
+                        if (running.get()) {
+                            log.error("[VK] Poll event error: {}", e.getMessage());
+                            Thread.sleep(3000);
+                        }
+                        break; // переинициализируем сервер
                     }
-                } catch (Exception e) {
-                    if (running.get()) {
-                        log.error("VK poll error: {}", e.getMessage(), e);
-                        Thread.sleep(3000);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            } catch (Exception e) {
+                if (running.get()) {
+                    log.error("[VK] Poller outer error, retrying in 10s: {}", e.getMessage());
+                    try { Thread.sleep(10_000); } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        return;
                     }
                 }
             }
-        } catch (Exception e) {
-            log.error("Fatal error in VK poller", e);
         }
+    }
+
+    /** Пытается получить Long Poll сервер; при ошибке повторяет с задержкой. */
+    private Map<String, String> acquireLongPollServer() throws InterruptedException {
+        while (running.get()) {
+            try {
+                Map<String, String> server = vkHttpClient.getLongPollServer();
+                if (server != null && server.get("key") != null) {
+                    return server;
+                }
+                log.warn("[VK] getLongPollServer returned null or incomplete, retrying in 10s");
+            } catch (Exception e) {
+                log.error("[VK] getLongPollServer error, retrying in 10s: {}", e.getMessage());
+            }
+            Thread.sleep(10_000);
+        }
+        return null;
     }
 }

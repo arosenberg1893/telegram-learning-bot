@@ -40,6 +40,8 @@ public class VkBotHandler {
     private final VkHttpClient vkHttpClient;
     private final UserLockService userLockService;
     private final UserSettingsService userSettingsService;
+    private final MaterialPdfGenerator materialPdfGenerator;
+    private final CloudStorageFacade cloudStorageFacade;
 
     @Value("${vk.bot.page-size:3}")
     private int vkPageSize;
@@ -72,7 +74,9 @@ public class VkBotHandler {
                         UserProgressCleanupService progressCleanupService,
                         UserStudyTimeRepository userStudyTimeRepository,
                         VkHttpClient vkHttpClient,
-                        UserLockService userLockService) {
+                        UserLockService userLockService,
+                        MaterialPdfGenerator materialPdfGenerator,
+                        CloudStorageFacade cloudStorageFacade) {
         this.sender = sender;
         this.sessionService = sessionService;
         this.navigationService = navigationService;
@@ -82,11 +86,23 @@ public class VkBotHandler {
         this.vkHttpClient = vkHttpClient;
         this.userLockService = userLockService;
         this.userSettingsService = userSettingsService;
+        this.materialPdfGenerator = materialPdfGenerator;
+        this.cloudStorageFacade = cloudStorageFacade;
 
-        this.courseNavHandler = new CourseNavigationHandler(sender, sessionService, navigationService, adminUserRepository, keyboardBuilder, userSettingsService);
-        this.testHandler = new TestHandler(sender, sessionService, navigationService, questionRepository, adminUserRepository, answerOptionRepository, userProgressRepository, userMistakeRepository, userTestResultRepository, courseNavHandler, userSettingsService);
-        this.adminHandler = new AdminHandler(sender, new VkFileDownloader(vkHttpClient), sessionService, navigationService, courseImportService, courseRepository, keyboardBuilder, sectionRepository, topicRepository, blockRepository, questionRepository, answerOptionRepository, blockImageRepository, questionImageRepository, adminUserRepository, userProgressRepository, userStudyTimeRepository, objectMapper, userSettingsService);
-        this.settingsHandler = new SettingsHandler(sender, sessionService, navigationService, adminUserRepository, userSettingsService, progressCleanupService);
+        this.courseNavHandler = new CourseNavigationHandler(sender, sessionService, navigationService,
+                adminUserRepository, keyboardBuilder, userSettingsService, materialPdfGenerator, cloudStorageFacade);
+        this.testHandler = new TestHandler(sender, sessionService, navigationService,
+                questionRepository, adminUserRepository, answerOptionRepository,
+                userProgressRepository, userMistakeRepository, userTestResultRepository,
+                courseNavHandler, userSettingsService);
+        this.adminHandler = new AdminHandler(sender, new VkFileDownloader(vkHttpClient),
+                sessionService, navigationService, courseImportService, courseRepository,
+                keyboardBuilder, sectionRepository, topicRepository, blockRepository,
+                questionRepository, answerOptionRepository, blockImageRepository,
+                questionImageRepository, adminUserRepository, userProgressRepository,
+                userStudyTimeRepository, objectMapper, userSettingsService);
+        this.settingsHandler = new SettingsHandler(sender, sessionService, navigationService,
+                adminUserRepository, userSettingsService, progressCleanupService);
     }
 
     // ================== Публичные методы ==================
@@ -237,6 +253,17 @@ public class VkBotHandler {
                     testHandler.handleTestCourse(internalUserId, messageId, Long.parseLong(parts[1]));
                     break;
 
+                /// экспорт учебных материалов
+                case CALLBACK_EXPORT_TOPIC:
+                    courseNavHandler.handleExportTopic(internalUserId, messageId, payload);   // ← payload = полный callback
+                    break;
+                case CALLBACK_EXPORT_SECTION:
+                    courseNavHandler.handleExportSection(internalUserId, messageId, payload);
+                    break;
+                case CALLBACK_EXPORT_COURSE:
+                    courseNavHandler.handleExportCourse(internalUserId, messageId, payload);
+                    break;
+
                 // администрирование
                 case CALLBACK_CREATE_COURSE:
                     if (!isAdmin(internalUserId)) return;
@@ -364,8 +391,11 @@ public class VkBotHandler {
                 case CALLBACK_SETTINGS_RESET_CONFIRM:
                     settingsHandler.resetProgress(internalUserId, messageId);
                     break;
+                case CALLBACK_SETTINGS_PDF_QUESTIONS:
+                    settingsHandler.togglePdfQuestions(internalUserId, messageId);
+                    break;
 
-                // привязка аккаунтов (новые)
+                // привязка аккаунтов
                 case CALLBACK_LINK_GENERATE:
                     linkHandler.generateCode(internalUserId, Platform.VK, sender);
                     break;
@@ -477,7 +507,6 @@ public class VkBotHandler {
         try {
             UserContext context = sessionService.getCurrentContext(internalUserId);
             String userName = context.getUserName() != null ? context.getUserName() : DEFAULT_USER_NAME;
-            // Получаем прямую ссылку на файл на Яндекс.Диске
             String downloadUrl = pdfExportService.saveStatisticsPdf(internalUserId, userName);
             String message = "📊 Ваша статистика готова. Скачайте PDF по ссылке:\n" + downloadUrl +
                     "\n\nСсылка действительна 15 минут.";

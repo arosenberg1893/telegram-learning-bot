@@ -40,17 +40,20 @@ public class SettingsHandler extends BaseHandler {
                         ❓ Вопросов в тесте (на блок): %d
                         💬 Показывать пояснения: %s
                         🔔 Уведомления о новых курсах: %s
+                        📄 Вопросы в PDF: %s
                         """,
                 settings.getShuffleOptions() ? "✅" : "❌",
                 settings.getPageSize(),
                 settings.getTestQuestionsPerBlock(),
                 settings.getShowExplanations() ? "✅" : "❌",
-                settings.getNotificationsEnabled() ? "✅" : "❌"
+                settings.getNotificationsEnabled() ? "✅" : "❌",
+                settings.getIncludeQuestionsInPdf() ? "✅" : "❌"
         );
 
         BotKeyboard keyboard = new BotKeyboard()
                 .addRow(BotButton.callback("🔀 Перемешивание", CALLBACK_SETTINGS_SHUFFLE));
 
+        // Для VK скрываем опцию изменения размера страницы
         if (messageSender.getPlatform() != Platform.VK) {
             keyboard.addRow(BotButton.callback("📄 Размер страницы", CALLBACK_SETTINGS_PAGESIZE));
         }
@@ -59,6 +62,7 @@ public class SettingsHandler extends BaseHandler {
                         BotButton.callback("💬 Пояснения", CALLBACK_SETTINGS_EXPLANATIONS))
                 .addRow(BotButton.callback("🔔 Уведомления", CALLBACK_SETTINGS_NOTIFICATIONS),
                         BotButton.callback("🗑️ Сброс прогресса", CALLBACK_SETTINGS_RESET))
+                .addRow(BotButton.callback("📄 Вопросы в PDF", CALLBACK_SETTINGS_PDF_QUESTIONS))
                 .addRow(BotButton.callback("🔗 Привязать аккаунт", CALLBACK_LINK_GENERATE))
                 .addRow(BotButton.callback(BUTTON_MAIN_MENU, CALLBACK_MAIN_MENU));
 
@@ -87,6 +91,12 @@ public class SettingsHandler extends BaseHandler {
         showSettingsMenu(userId, messageId);
     }
 
+    public void togglePdfQuestions(Long userId, Integer messageId) {
+        userSettingsService.updateSettings(userId, settings ->
+                settings.setIncludeQuestionsInPdf(!settings.getIncludeQuestionsInPdf()));
+        showSettingsMenu(userId, messageId);
+    }
+
     public void showPageSizeOptions(Long userId, Integer messageId) {
         if (messageSender.getPlatform() == Platform.VK) {
             sendMessage(userId, "❌ Изменение размера страницы недоступно в VK.", createBackToMainKeyboard());
@@ -94,17 +104,11 @@ public class SettingsHandler extends BaseHandler {
         }
         String text = "Выберите количество элементов на странице:";
         BotKeyboard keyboard = new BotKeyboard()
-                .addRow(
-                        BotButton.callback("5", CALLBACK_SETTINGS_PAGESIZE_SET + ":5"),
+                .addRow(BotButton.callback("5", CALLBACK_SETTINGS_PAGESIZE_SET + ":5"),
                         BotButton.callback("10", CALLBACK_SETTINGS_PAGESIZE_SET + ":10"),
-                        BotButton.callback("15", CALLBACK_SETTINGS_PAGESIZE_SET + ":15")
-                )
-                .addRow(
-                        BotButton.callback("✏️ Другое", CALLBACK_SETTINGS_PAGESIZE_OTHER)
-                )
-                .addRow(
-                        BotButton.callback("🔙 Назад", CALLBACK_SETTINGS)
-                );
+                        BotButton.callback("15", CALLBACK_SETTINGS_PAGESIZE_SET + ":15"))
+                .addRow(BotButton.callback("✏️ Другое", CALLBACK_SETTINGS_PAGESIZE_OTHER))
+                .addRow(BotButton.callback("🔙 Назад", CALLBACK_SETTINGS));
         editMessage(userId, messageId, text, keyboard);
     }
 
@@ -148,13 +152,12 @@ public class SettingsHandler extends BaseHandler {
 
     public void showQuestionsPerBlockOptions(Long userId, Integer messageId) {
         String text = "Выберите количество вопросов на блок в тестах раздела/курса:";
-        BotKeyboard keyboard = new BotKeyboard().addRow(BotButton.callback("1", CALLBACK_SETTINGS_QUESTIONS_SET + ":1"),
-                BotButton.callback("2", CALLBACK_SETTINGS_QUESTIONS_SET + ":2"),
-                BotButton.callback("3", CALLBACK_SETTINGS_QUESTIONS_SET + ":3"),
-                BotButton.callback("5", CALLBACK_SETTINGS_QUESTIONS_SET + ":5")
-        ).addRow(
-                BotButton.callback("🔙 Назад", CALLBACK_SETTINGS)
-        );
+        BotKeyboard keyboard = new BotKeyboard()
+                .addRow(BotButton.callback("1", CALLBACK_SETTINGS_QUESTIONS_SET + ":1"),
+                        BotButton.callback("2", CALLBACK_SETTINGS_QUESTIONS_SET + ":2"),
+                        BotButton.callback("3", CALLBACK_SETTINGS_QUESTIONS_SET + ":3"),
+                        BotButton.callback("5", CALLBACK_SETTINGS_QUESTIONS_SET + ":5"))
+                .addRow(BotButton.callback("🔙 Назад", CALLBACK_SETTINGS));
         editMessage(userId, messageId, text, keyboard);
     }
 
@@ -165,9 +168,9 @@ public class SettingsHandler extends BaseHandler {
 
     public void confirmResetProgress(Long userId, Integer messageId) {
         String text = "⚠️ Вы уверены, что хотите **полностью сбросить весь прогресс обучения**? Все ваши ответы, ошибки и время изучения будут удалены. Это действие необратимо.";
-        BotKeyboard keyboard = new BotKeyboard().addRow(BotButton.callback("✅ Да, сбросить", CALLBACK_SETTINGS_RESET_CONFIRM),
-                BotButton.callback("❌ Отмена", CALLBACK_SETTINGS)
-        );
+        BotKeyboard keyboard = new BotKeyboard()
+                .addRow(BotButton.callback("✅ Да, сбросить", CALLBACK_SETTINGS_RESET_CONFIRM),
+                        BotButton.callback("❌ Отмена", CALLBACK_SETTINGS));
         editMessage(userId, messageId, text, keyboard);
     }
 

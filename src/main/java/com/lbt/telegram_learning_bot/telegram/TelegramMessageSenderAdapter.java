@@ -85,7 +85,10 @@ public class TelegramMessageSenderAdapter implements MessageSender {
 
     @Override
     public Integer sendDocument(long userId, byte[] data, String fileName, String caption, BotKeyboard keyboard) {
-        var req = new SendDocument(userId, data).fileName(fileName).caption(caption);
+        var req = new SendDocument(userId, data).fileName(fileName);
+        if (caption != null && !caption.isEmpty()) {
+            req.caption(caption);
+        }
         if (keyboard != null) req.replyMarkup(toInlineKeyboardMarkup(keyboard));
         var resp = bot.execute(req);
         return resp.isOk() ? resp.message().messageId() : null;

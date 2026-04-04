@@ -10,10 +10,18 @@ import org.springframework.stereotype.Repository;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Repository
 public interface CourseRepository extends JpaRepository<Course, Long> {
+
+    /**
+     * Загружает курс со всеми разделами для генерации PDF (только первый уровень).
+     * Темы и блоки загружаются отдельными запросами, чтобы избежать MultipleBagFetchException.
+     */
+    @Query("SELECT DISTINCT c FROM Course c LEFT JOIN FETCH c.sections s WHERE c.id = :courseId")
+    Optional<Course> findByIdWithSections(@Param("courseId") Long courseId);
     // Можно добавить методы поиска по названию, если нужно
     Page<Course> findByTitleContainingIgnoreCase(String title, Pageable pageable);
     @Query("SELECT c.id, COUNT(q) FROM Course c JOIN c.sections s JOIN s.topics t JOIN t.blocks b JOIN b.questions q WHERE c.id IN :courseIds GROUP BY c.id")

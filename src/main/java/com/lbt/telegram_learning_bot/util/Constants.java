@@ -61,6 +61,9 @@ public final class Constants {
     public static final String BUTTON_EDIT_COURSE = "✏️ Изменить курс";
     public static final String BUTTON_DELETE_COURSE = "🗑️ Удалить курс";
 
+    // ========== Кнопка для экспорта учебных материалов ==========
+    public static final String BUTTON_PDF = "📄 PDF";
+
     // ========== Эмодзи для статусов ==========
     public static final String EMOJI_NOT_STARTED = "⚪";
     public static final String EMOJI_IN_PROGRESS = "🟡";
@@ -107,7 +110,26 @@ public final class Constants {
     public static final String CALLBACK_STATISTICS_BACK = "statistics:back";
     public static final String CALLBACK_BACK_TO_BLOCK_TEXT = "back_to_block_text";
 
-    // ========== Привязка аккаунтов (новые callback-и) ==========
+    // ========== Новые callback'и для экспорта учебных материалов ==========
+    public static final String CALLBACK_EXPORT_COURSE = "export_course";
+    public static final String CALLBACK_EXPORT_SECTION = "export_section";
+    public static final String CALLBACK_EXPORT_TOPIC = "export_topic";
+
+    // ========== Настройки (включая PDF вопросы) ==========
+    public static final String CALLBACK_SETTINGS = "settings";
+    public static final String CALLBACK_SETTINGS_SHUFFLE = "settings_shuffle";
+    public static final String CALLBACK_SETTINGS_PAGESIZE = "settings_pagesize";
+    public static final String CALLBACK_SETTINGS_PAGESIZE_OTHER = "settings_pagesize_other";
+    public static final String CALLBACK_SETTINGS_QUESTIONS = "settings_questions";
+    public static final String CALLBACK_SETTINGS_EXPLANATIONS = "settings_explanations";
+    public static final String CALLBACK_SETTINGS_NOTIFICATIONS = "settings_notifications";
+    public static final String CALLBACK_SETTINGS_RESET = "settings_reset";
+    public static final String CALLBACK_SETTINGS_PAGESIZE_SET = "settings_pagesize_set";
+    public static final String CALLBACK_SETTINGS_QUESTIONS_SET = "settings_questions_set";
+    public static final String CALLBACK_SETTINGS_RESET_CONFIRM = "settings_reset_confirm";
+    public static final String CALLBACK_SETTINGS_PDF_QUESTIONS = "settings_pdf_questions";
+
+    // ========== Привязка аккаунтов ==========
     public static final String CALLBACK_LINK_GENERATE = "link_generate";
     public static final String CALLBACK_LINK_KEEP_TELEGRAM = "link_keep_telegram";
     public static final String CALLBACK_LINK_KEEP_VK = "link_keep_vk";
@@ -115,9 +137,16 @@ public final class Constants {
     public static final String CALLBACK_LINK_MERGE_SETTINGS_TG = "link_merge_settings_tg";
     public static final String CALLBACK_LINK_MERGE_SETTINGS_VK = "link_merge_settings_vk";
 
-    // Старые callback-и (оставлены для обратной совместимости, но не используются)
+    // Старые callback-и (оставлены для обратной совместимости)
     public static final String CALLBACK_LINK_RESOLVE_KEEP_THIS = "link_keep_this";
     public static final String CALLBACK_LINK_RESOLVE_KEEP_OTHER = "link_keep_other";
+
+    // ========== Административные callback'и ==========
+    public static final String CALLBACK_ADMIN_COURSES_PAGE = "admin_courses_page";
+    public static final String CALLBACK_ADMIN_SECTIONS_PAGE = "admin_sections_page";
+    public static final String CALLBACK_ADMIN_TOPICS_PAGE = "admin_topics_page";
+    public static final String CALLBACK_ADMIN_BACK_TO_SECTIONS = "admin_back_to_sections";
+    public static final String CALLBACK_ADMIN_BACK_TO_TOPICS = "admin_back_to_topics";
 
     // ========== Сообщения пользователю ==========
     public static final String MSG_NO_DATA = "нет данных";
@@ -154,6 +183,8 @@ public final class Constants {
     public static final String MSG_SECTION_NOT_SELECTED = "Ошибка: не выбран раздел для редактирования.";
     public static final String MSG_PDF_ERROR = "❌ Ошибка при формировании PDF";
     public static final String STATS_PDF_CAPTION = "📊 Ваша статистика обучения";
+    public static final String MSG_PDF_GENERATION_START = "⏳ Генерирую PDF, подождите...";
+    public static final String MSG_PDF_READY = "📄 Ваш PDF готов. Ссылка действительна 15 минут:\n%s";
 
     // ========== Форматы ==========
     public static final String FORMAT_COURSE_PROGRESS = "%s %s — %d%% (%d/%d вопросов)";
@@ -182,7 +213,6 @@ public final class Constants {
     public static final String STATS_TOTAL_TIME = "⏱️ Общее время изучения: %s\n";
     public static final String STATS_PROGRESS = "📚 Прогресс по курсам:\n";
     public static final String STATS_NO_DATA = "   (нет данных)";
-
 
     public static final String MSG_SEARCH_PROMPT = "🔍 Введите текст для поиска курсов:";
     public static final String FORMAT_COURSE_HEADER = "📖 **Курс:** %s\n\n%s\n\n⏱️ **Последний визит:** %s";
@@ -221,27 +251,6 @@ public final class Constants {
 
     public static final String TOO_MANY_REQUEST = "⏳ Слишком много запросов. Пожалуйста, подождите минуту.";
 
-    public static final String CALLBACK_ADMIN_COURSES_PAGE = "admin_courses_page";
-    public static final String CALLBACK_ADMIN_SECTIONS_PAGE = "admin_sections_page";
-    public static final String CALLBACK_ADMIN_TOPICS_PAGE = "admin_topics_page";
-    public static final String CALLBACK_ADMIN_BACK_TO_SECTIONS = "admin_back_to_sections";
-    public static final String CALLBACK_ADMIN_BACK_TO_TOPICS = "admin_back_to_topics";
-
-    public static final String CALLBACK_SETTINGS = "settings";
-    public static final String CALLBACK_SETTINGS_SHUFFLE = "settings_shuffle";
-    public static final String CALLBACK_SETTINGS_PAGESIZE = "settings_pagesize";
-    public static final String CALLBACK_SETTINGS_PAGESIZE_OTHER = "settings_pagesize_other";
-    public static final String CALLBACK_SETTINGS_QUESTIONS = "settings_questions";
-    public static final String CALLBACK_SETTINGS_EXPLANATIONS = "settings_explanations";
-    public static final String CALLBACK_SETTINGS_NOTIFICATIONS = "settings_notifications";
-    public static final String CALLBACK_SETTINGS_RESET = "settings_reset";
-    public static final String CALLBACK_SETTINGS_PAGESIZE_SET = "settings_pagesize_set";
-    public static final String CALLBACK_SETTINGS_QUESTIONS_SET = "settings_questions_set";
-    public static final String CALLBACK_SETTINGS_RESET_CONFIRM = "settings_reset_confirm";
-
-    public static final int ADMIN_PAGE_SIZE = 5;
-    public static final int ADMIN_DEFAULT_PAGE_SIZE = 5;
-
     // ========== Привязка аккаунтов (тексты сообщений и кнопок) ==========
     public static final String MSG_LINK_CODE_GENERATED =
             "🔗 Ваш код для привязки аккаунта: *%s*\n\n" +
@@ -269,11 +278,14 @@ public final class Constants {
     public static final String BUTTON_KEEP_TELEGRAM_PROGRESS = "📱 Оставить прогресс Telegram";
     public static final String BUTTON_KEEP_VK_PROGRESS = "🌐 Оставить прогресс ВКонтакте";
     public static final String BUTTON_MERGE_PROGRESS = "🔄 Объединить прогресс";
-    // Старые кнопки (оставлены для обратной совместимости)
     public static final String BUTTON_KEEP_THIS_PROGRESS = "Оставить прогресс этого аккаунта";
     public static final String BUTTON_KEEP_OTHER_PROGRESS = "Оставить прогресс другого аккаунта";
 
     // ========== Дополнительные форматы ==========
     public static final String FORMAT_STUDY_TIME_HOURS = "%d ч %d мин";
     public static final String FORMAT_STUDY_TIME_MINUTES = "%d мин";
+
+    // ========== Константы администратора ==========
+    public static final int ADMIN_PAGE_SIZE = 5;
+    public static final int ADMIN_DEFAULT_PAGE_SIZE = 5;
 }

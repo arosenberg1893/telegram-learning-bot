@@ -28,7 +28,7 @@
 	</scm>
 	<properties>
 		<java.version>21</java.version>
-		<itext.version>7.2.5</itext.version>
+		<itext.version>7.2.6</itext.version>
 		<bouncycastle.version>1.78</bouncycastle.version>
 	</properties>
 	<repositories>

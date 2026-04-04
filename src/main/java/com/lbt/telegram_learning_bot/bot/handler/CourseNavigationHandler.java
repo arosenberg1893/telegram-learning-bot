@@ -6,14 +6,16 @@ import com.lbt.telegram_learning_bot.entity.*;
 import com.lbt.telegram_learning_bot.platform.BotButton;
 import com.lbt.telegram_learning_bot.platform.BotKeyboard;
 import com.lbt.telegram_learning_bot.platform.MessageSender;
+import com.lbt.telegram_learning_bot.platform.Platform;
 import com.lbt.telegram_learning_bot.repository.AdminUserRepository;
-import com.lbt.telegram_learning_bot.service.NavigationService;
-import com.lbt.telegram_learning_bot.service.UserSessionService;
-import com.lbt.telegram_learning_bot.service.UserSettingsService;
+import com.lbt.telegram_learning_bot.service.*;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.beans.Transient;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 import static com.lbt.telegram_learning_bot.util.Constants.*;
 
@@ -21,18 +23,26 @@ import static com.lbt.telegram_learning_bot.util.Constants.*;
 public class CourseNavigationHandler extends BaseHandler {
 
     private final KeyboardBuilder keyboardBuilder;
+    private final MaterialPdfGenerator materialPdfGenerator;
+    private final CloudStorageFacade cloudStorageFacade;
+    private final UserSettingsService userSettingsService;
 
     public CourseNavigationHandler(MessageSender messageSender,
                                    UserSessionService sessionService,
                                    NavigationService navigationService,
                                    AdminUserRepository adminUserRepository,
                                    KeyboardBuilder keyboardBuilder,
-                                   UserSettingsService userSettingsService) {
+                                   UserSettingsService userSettingsService,
+                                   MaterialPdfGenerator materialPdfGenerator,
+                                   CloudStorageFacade cloudStorageFacade) {
         super(messageSender, sessionService, navigationService, adminUserRepository, userSettingsService);
         this.keyboardBuilder = keyboardBuilder;
+        this.userSettingsService = userSettingsService;
+        this.materialPdfGenerator = materialPdfGenerator;
+        this.cloudStorageFacade = cloudStorageFacade;
     }
 
-    // ================== Публичные методы (все принимают pageSize) ==================
+    // ================== Публичные методы навигации ==================
 
     public void handleMyCourses(Long userId, Integer messageId, int page, int pageSize) {
         log.debug("handleMyCourses: userId={}, messageId={}, page={}, pageSize={}", userId, messageId, page, pageSize);
@@ -42,7 +52,6 @@ public class CourseNavigationHandler extends BaseHandler {
     public void handleSelectTopic(Long userId, Integer messageId, Long topicId) {
         clearMediaMessages(userId);
         UserContext context = sessionService.getCurrentContext(userId);
-
         context.setPreviousTopicPage(context.getCurrentPage());
 
         List<Block> blocks = navigationService.getTopicBlocksWithQuestions(topicId);
@@ -269,6 +278,175 @@ public class CourseNavigationHandler extends BaseHandler {
         sessionService.updateSessionState(userId, BotState.SEARCH_COURSES);
     }
 
+    // ================== Экспорт учебных материалов в PDF ==================
+
+    @Transactional(readOnly = true)
+    public void handleExportCourse(Long userId, Integer messageId, String callbackData) {
+        String[] parts = callbackData.split(":", 4);
+        long courseId = Long.parseLong(parts[1]);
+        int returnPage = (parts.length > 2) ? Integer.parseInt(parts[2]) : 0;
+        String returnSource = (parts.length > 3) ? parts[3] : CALLBACK_ALL_COURSES;
+
+        Course course = navigationService.getCourseWithContent(courseId).orElse(null);
+        if (course == null) {
+            sendMessage(userId, MSG_PDF_ERROR, createBackToMainKeyboard());
+            return;
+        }
+
+        String courseTitle = course.getTitle();
+        byte[] pdfData = generatePdfWithTransaction(() -> {
+            String userName = getUserName(userId);
+            boolean includeQuestions = userSettingsService.getSettings(userId).getIncludeQuestionsInPdf();
+            return materialPdfGenerator.generateCoursePdf(course, userName, includeQuestions);
+        });
+
+        sendGeneratedPdf(userId, messageId, courseTitle, pdfData, "courses_page:" + returnSource + ":" + returnPage);
+    }
+
+    @Transactional(readOnly = true)
+    public void handleExportSection(Long userId, Integer messageId, String callbackData) {
+        String[] parts = callbackData.split(":", 4);
+        long sectionId = Long.parseLong(parts[1]);
+        int returnPage = (parts.length > 2) ? Integer.parseInt(parts[2]) : 0;
+        long courseId = (parts.length > 3) ? Long.parseLong(parts[3]) : 0;
+
+        Section section = navigationService.getSectionWithContent(sectionId).orElse(null);
+        if (section == null) {
+            sendMessage(userId, MSG_PDF_ERROR, createBackToMainKeyboard());
+            return;
+        }
+
+        String sectionTitle = section.getTitle();
+        byte[] pdfData = generatePdfWithTransaction(() -> {
+            String userName = getUserName(userId);
+            boolean includeQuestions = userSettingsService.getSettings(userId).getIncludeQuestionsInPdf();
+            return materialPdfGenerator.generateSectionPdf(section, userName, includeQuestions);
+        });
+
+        sendGeneratedPdf(userId, messageId, sectionTitle, pdfData, "sections_page:" + courseId + ":" + returnPage);
+    }
+
+    @Transactional(readOnly = true)
+    public void handleExportTopic(Long userId, Integer messageId, String callbackData) {
+        String[] parts = callbackData.split(":", 4);
+        long topicId = Long.parseLong(parts[1]);
+        int returnPage = (parts.length > 2) ? Integer.parseInt(parts[2]) : 0;
+        long sectionId = (parts.length > 3) ? Long.parseLong(parts[3]) : 0;
+
+        Topic topic = navigationService.getTopicWithBlocks(topicId).orElse(null);
+        if (topic == null) {
+            sendMessage(userId, MSG_PDF_ERROR, createBackToMainKeyboard());
+            return;
+        }
+
+        String topicTitle = topic.getTitle();
+        byte[] pdfData = generatePdfWithTransaction(() -> {
+            String userName = getUserName(userId);
+            boolean includeQuestions = userSettingsService.getSettings(userId).getIncludeQuestionsInPdf();
+            return materialPdfGenerator.generateTopicPdf(topic, userName, includeQuestions);
+        });
+
+        sendGeneratedPdf(userId, messageId, topicTitle, pdfData, "topics_page:" + sectionId + ":" + returnPage);
+    }
+
+    // Вспомогательный метод — гарантирует, что генерация PDF происходит внутри транзакции
+    @Transactional(readOnly = true)
+    private byte[] generatePdfWithTransaction(PdfSupplier supplier) {
+        try {
+            return supplier.generate();
+        } catch (Exception e) {
+            throw new RuntimeException("PDF generation failed", e);
+        }
+    }
+
+    // Отправка уже готового PDF + красивая кнопка возврата
+    private void sendGeneratedPdf(Long userId, Integer messageId, String contentTitle,
+                                  byte[] pdfData, String returnCallbackData) {
+        Integer progressMsgId = sendProgressMessage(userId);
+        try {
+            String safeTitle = contentTitle.replaceAll("[\\\\/:*?\"<>|]", "_");
+            String fileName = safeTitle + ".pdf";
+
+            BotKeyboard returnKeyboard = createReturnKeyboard(returnCallbackData);
+
+            if (messageSender.getPlatform() == Platform.TELEGRAM) {
+                messageSender.sendDocument(userId, pdfData, fileName, null, returnKeyboard);
+            } else {
+                String publicLink = cloudStorageFacade.uploadWithFallback(pdfData, fileName);
+                String linkMessage = String.format(MSG_PDF_READY, publicLink);
+                sendMessage(userId, linkMessage, returnKeyboard);
+            }
+
+            if (progressMsgId != null) deleteMessage(userId, progressMsgId);
+            if (messageId != null) deleteMessage(userId, messageId);
+        } catch (Exception e) {
+            log.error("Error sending PDF for user {}", userId, e);
+            if (progressMsgId != null) deleteMessage(userId, progressMsgId);
+            sendMessage(userId, MSG_PDF_ERROR, createBackToMainKeyboard());
+        }
+    }
+
+    private void exportPdf(Long userId, Integer messageId, String contentTitle,
+                           PdfSupplier pdfSupplier, String returnCallbackData) {
+        Integer progressMsgId = sendProgressMessage(userId);
+        try {
+            byte[] pdfData = pdfSupplier.generate();
+
+            String safeTitle = contentTitle.replaceAll("[\\\\/:*?\"<>|]", "_");
+            String fileName = safeTitle + ".pdf";
+
+            BotKeyboard returnKeyboard = createReturnKeyboard(returnCallbackData);
+
+            if (messageSender.getPlatform() == Platform.TELEGRAM) {
+                messageSender.sendDocument(userId, pdfData, fileName, null, returnKeyboard);
+            } else {
+                String publicLink = cloudStorageFacade.uploadWithFallback(pdfData, fileName);
+                String linkMessage = String.format(MSG_PDF_READY, publicLink);
+                sendMessage(userId, linkMessage, returnKeyboard);
+            }
+
+            if (progressMsgId != null) {
+                deleteMessage(userId, progressMsgId);
+            }
+            if (messageId != null) {
+                deleteMessage(userId, messageId);
+            }
+        } catch (Exception e) {
+            log.error("Error generating PDF for user {}", userId, e);
+            if (progressMsgId != null) {
+                deleteMessage(userId, progressMsgId);
+            }
+            sendMessage(userId, MSG_PDF_ERROR, createBackToMainKeyboard());
+        }
+    }
+
+    /** Новая вспомогательная клавиатура возврата (не ломает ничего) */
+    /** Красивая кнопка возврата с правильным текстом в зависимости от контекста */
+    private BotKeyboard createReturnKeyboard(String returnCallbackData) {
+        String buttonText = getReturnButtonText(returnCallbackData);
+        return new BotKeyboard()
+                .addRow(BotButton.callback(buttonText, returnCallbackData));
+    }
+
+    /** Определяет красивый текст для кнопки возврата */
+    private String getReturnButtonText(String callbackData) {
+        if (callbackData.startsWith("courses_page:")) {
+            return "← Назад к курсам";
+        } else if (callbackData.startsWith("sections_page:")) {
+            return "← Назад к разделам";
+        } else if (callbackData.startsWith("topics_page:")) {
+            return "← Назад к темам";
+        }
+        // fallback (на всякий случай)
+        return "← Вернуться к списку";
+    }
+
+    private String getUserName(Long userId) {
+        UserContext context = sessionService.getCurrentContext(userId);
+        String name = context.getUserName();
+        return (name != null && !name.isEmpty()) ? name : DEFAULT_USER_NAME;
+    }
+
     // ================== Внутренние методы навигации ==================
 
     private void showMyCourses(Long userId, Integer messageId, int page, int pageSize) {
@@ -391,5 +569,17 @@ public class CourseNavigationHandler extends BaseHandler {
                 sendMessage(userId, MSG_BLOCK_NOT_FOUND, createBackToMainKeyboard());
             }
         });
+    }
+
+    // ================== Дополнительные методы ==================
+
+    public Optional<Course> getCourse(Long courseId) {
+        return navigationService.getCourse(courseId);
+    }
+
+    // Вспомогательный интерфейс для лямбды генерации PDF
+    @FunctionalInterface
+    private interface PdfSupplier {
+        byte[] generate() throws Exception;
     }
 }

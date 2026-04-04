@@ -24,11 +24,18 @@ public class KeyboardBuilder {
 
     // ========== Пользовательские клавиатуры (BotKeyboard) ==========
 
+    /**
+     * Строит клавиатуру для списка курсов.
+     * Каждая строка: [название курса] [Тест] [PDF]
+     */
     public BotKeyboard buildCoursesKeyboardBot(PaginationResult<Course> result, Long userId,
                                                String source, String selectAction, boolean withTest) {
+
         List<Long> courseIds = result.getItems().stream().map(Course::getId).toList();
         Map<Long, String> courseStatuses = navigationService.getCourseStatusesForUser(userId, courseIds);
-        Map<Long, String> courseTestStatuses = withTest ? navigationService.getCourseTestStatusesForUser(userId, courseIds) : Collections.emptyMap();
+        Map<Long, String> courseTestStatuses = withTest
+                ? navigationService.getCourseTestStatusesForUser(userId, courseIds)
+                : Collections.emptyMap();
 
         BotKeyboard keyboard = new BotKeyboard();
         for (Course course : result.getItems()) {
@@ -45,9 +52,13 @@ public class KeyboardBuilder {
             if (withTest) {
                 String testEmoji = courseTestStatuses.getOrDefault(course.getId(), EMOJI_NOT_STARTED);
                 String testButtonText = testEmoji + " Тест";
+
+                // ← ИЗМЕНЕНИЕ: теперь PDF-кнопка передаёт page и source
                 keyboard.addRow(
                         BotButton.callback(title, selectAction + ":" + course.getId()),
-                        BotButton.callback(testButtonText, "test_course:" + course.getId())
+                        BotButton.callback(testButtonText, "test_course:" + course.getId()),
+                        BotButton.callback(BUTTON_PDF, "export_course:" + course.getId()
+                                + ":" + result.getCurrentPage() + ":" + source)
                 );
             } else {
                 keyboard.addRow(BotButton.callback(title, selectAction + ":" + course.getId()));
@@ -59,18 +70,27 @@ public class KeyboardBuilder {
         return keyboard;
     }
 
+    /**
+     * Строит клавиатуру для списка разделов.
+     */
     public BotKeyboard buildSectionsKeyboardBot(PaginationResult<Section> result, Long userId,
                                                 Long courseId, boolean withTest, String selectAction) {
+
         BotKeyboard keyboard = new BotKeyboard();
         for (Section section : result.getItems()) {
             String sectionEmoji = navigationService.getSectionStatusEmoji(userId, section.getId());
             String title = sectionEmoji + " " + section.getTitle();
+
             if (withTest) {
                 String testEmoji = navigationService.getSectionTestStatus(userId, section.getId());
                 String testButtonText = testEmoji + " Тест";
+
+                // ← ИЗМЕНЕНИЕ: PDF-кнопка передаёт page и courseId
                 keyboard.addRow(
                         BotButton.callback(title, selectAction + ":" + section.getId()),
-                        BotButton.callback(testButtonText, "test_section:" + section.getId())
+                        BotButton.callback(testButtonText, "test_section:" + section.getId()),
+                        BotButton.callback(BUTTON_PDF, "export_section:" + section.getId()
+                                + ":" + result.getCurrentPage() + ":" + courseId)
                 );
             } else {
                 keyboard.addRow(BotButton.callback(title, selectAction + ":" + section.getId()));
@@ -82,18 +102,27 @@ public class KeyboardBuilder {
         return keyboard;
     }
 
+    /**
+     * Строит клавиатуру для списка тем.
+     */
     public BotKeyboard buildTopicsKeyboardBot(PaginationResult<Topic> result, Long userId,
                                               Long sectionId, boolean withTest, String selectAction) {
+
         BotKeyboard keyboard = new BotKeyboard();
         for (Topic topic : result.getItems()) {
             String topicEmoji = navigationService.getTopicStatusEmoji(userId, topic.getId());
             String title = topicEmoji + " " + topic.getTitle();
+
             if (withTest) {
                 String testEmoji = navigationService.getTopicTestStatus(userId, topic.getId());
                 String testButtonText = testEmoji + " Тест";
+
+                // ← ИЗМЕНЕНИЕ: PDF-кнопка передаёт page и sectionId
                 keyboard.addRow(
                         BotButton.callback(title, selectAction + ":" + topic.getId()),
-                        BotButton.callback(testButtonText, "test_topic:" + topic.getId())
+                        BotButton.callback(testButtonText, "test_topic:" + topic.getId()),
+                        BotButton.callback(BUTTON_PDF, "export_topic:" + topic.getId()
+                                + ":" + result.getCurrentPage() + ":" + sectionId)
                 );
             } else {
                 keyboard.addRow(BotButton.callback(title, selectAction + ":" + topic.getId()));
@@ -191,7 +220,7 @@ public class KeyboardBuilder {
         }
     }
 
-    // Старые методы (не используются, оставлены для совместимости, но теперь возвращают пустую клавиатуру)
+    // ========== Устаревшие методы (оставлены для совместимости) ==========
     public BotKeyboard buildCoursesKeyboard(PaginationResult<Course> result, Long userId, String source, String selectAction, boolean withTest) {
         return new BotKeyboard();
     }

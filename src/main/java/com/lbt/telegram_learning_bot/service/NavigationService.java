@@ -89,6 +89,10 @@ public class NavigationService {
 
     // ================== Получение сущностей ==================
 
+    public Optional<Course> getCourse(Long courseId) {
+        return courseRepository.findById(courseId);
+    }
+
     public String getCourseTitle(Long courseId) {
         return courseRepository.findById(courseId).map(Course::getTitle).orElse("");
     }
@@ -152,12 +156,8 @@ public class NavigationService {
 
     // ================== Прогресс и статусы (оптимизировано) ==================
 
-    /**
-     * Возвращает последний прогресс пользователя по каждому вопросу темы в указанном режиме.
-     */
     private Map<Long, UserProgress> getLatestProgressForTopic(Long userId, Long topicId, String mode) {
         List<UserProgress> allProgress = userProgressRepository.findByUserIdAndTopicIdAndMode(userId, topicId, mode);
-        // Оставляем только последнюю запись для каждого вопроса
         Map<Long, UserProgress> latestByQuestion = new HashMap<>();
         for (UserProgress p : allProgress) {
             Long qid = p.getQuestion().getId();
@@ -169,9 +169,6 @@ public class NavigationService {
         return latestByQuestion;
     }
 
-    /**
-     * Учебный статус темы (на основе ответов в режиме LEARNING).
-     */
     private String getTopicLearningStatus(Long userId, Long topicId) {
         List<Question> questions = getAllQuestionsForTopic(topicId);
         if (questions.isEmpty()) return EMOJI_NOT_STARTED;
@@ -677,5 +674,133 @@ public class NavigationService {
 
     public Optional<Topic> getTopic(Long topicId) {
         return topicRepository.findById(topicId);
+    }
+
+    // ================== Методы для генерации PDF ==================
+    //
+    // Hibernate запрещает JOIN FETCH сразу нескольких коллекций типа List (Bag) в одном запросе
+    // (MultipleBagFetchException). Поэтому загрузка ведётся поэтапно:
+    //   1. Загружаем верхний уровень с одной коллекцией через FETCH JOIN.
+    //   2. Загружаем следующий уровень пакетным запросом по собранным ID.
+    // Всё выполняется в одной транзакции (@Transactional), так что сессия Hibernate
+    // остаётся открытой и LazyInitializationException не возникает.
+
+    /**
+     * Загружает курс со всем содержимым (разделы → темы → блоки) для генерации PDF.
+     */
+    @Transactional(readOnly = true)
+    public Optional<Course> getCourseWithContent(Long courseId) {
+        // 1. Курс + разделы
+        Optional<Course> courseOpt = courseRepository.findByIdWithSections(courseId);
+        if (courseOpt.isEmpty()) return Optional.empty();
+
+        Course course = courseOpt.get();
+        List<Long> topicIds = course.getSections().stream()
+                .flatMap(s -> s.getTopics().stream())
+                .map(Topic::getId)
+                .toList();
+
+        if (!topicIds.isEmpty()) {
+            // 2. Темы + блоки
+            List<Topic> topicsWithBlocks = topicRepository.findByIdsWithBlocks(topicIds);
+            Map<Long, Topic> topicMap = topicsWithBlocks.stream()
+                    .collect(Collectors.toMap(Topic::getId, t -> t));
+            for (Section section : course.getSections()) {
+                List<Topic> hydrated = section.getTopics().stream()
+                        .map(t -> topicMap.getOrDefault(t.getId(), t))
+                        .toList();
+                section.getTopics().clear();
+                section.getTopics().addAll(hydrated);
+            }
+
+            // 3. Загружаем все блоки, а затем вопросы с вариантами
+            List<Long> blockIds = topicsWithBlocks.stream()
+                    .flatMap(t -> t.getBlocks().stream())
+                    .map(Block::getId)
+                    .toList();
+
+            if (!blockIds.isEmpty()) {
+                // Вопросы с вариантами ответов для всех блоков
+                List<Question> allQuestions = questionRepository.findAllByBlockIdWithOptions(blockIds);
+                Map<Long, List<Question>> questionsByBlock = allQuestions.stream()
+                        .collect(Collectors.groupingBy(q -> q.getBlock().getId()));
+
+                // Присваиваем вопросы соответствующим блокам
+                for (Topic topic : topicsWithBlocks) {
+                    for (Block block : topic.getBlocks()) {
+                        List<Question> blockQuestions = questionsByBlock.getOrDefault(block.getId(), List.of());
+                        block.getQuestions().clear();
+                        block.getQuestions().addAll(blockQuestions);
+                    }
+                }
+            }
+        }
+        return Optional.of(course);
+    }
+
+    /**
+     * Загружает раздел со всем содержимым (темы → блоки) для генерации PDF.
+     */
+    @Transactional(readOnly = true)
+    public Optional<Section> getSectionWithContent(Long sectionId) {
+        Optional<Section> sectionOpt = sectionRepository.findByIdWithTopics(sectionId);
+        if (sectionOpt.isEmpty()) return Optional.empty();
+
+        Section section = sectionOpt.get();
+        List<Long> topicIds = section.getTopics().stream().map(Topic::getId).toList();
+
+        if (!topicIds.isEmpty()) {
+            List<Topic> topicsWithBlocks = topicRepository.findByIdsWithBlocks(topicIds);
+            Map<Long, Topic> topicMap = topicsWithBlocks.stream()
+                    .collect(Collectors.toMap(Topic::getId, t -> t));
+            List<Topic> hydrated = section.getTopics().stream()
+                    .map(t -> topicMap.getOrDefault(t.getId(), t))
+                    .toList();
+            section.getTopics().clear();
+            section.getTopics().addAll(hydrated);
+
+            // Загрузка вопросов с вариантами для всех блоков
+            List<Long> blockIds = topicsWithBlocks.stream()
+                    .flatMap(t -> t.getBlocks().stream())
+                    .map(Block::getId)
+                    .toList();
+            if (!blockIds.isEmpty()) {
+                List<Question> allQuestions = questionRepository.findAllByBlockIdWithOptions(blockIds);
+                Map<Long, List<Question>> questionsByBlock = allQuestions.stream()
+                        .collect(Collectors.groupingBy(q -> q.getBlock().getId()));
+                for (Topic topic : topicsWithBlocks) {
+                    for (Block block : topic.getBlocks()) {
+                        List<Question> blockQuestions = questionsByBlock.getOrDefault(block.getId(), List.of());
+                        block.getQuestions().clear();
+                        block.getQuestions().addAll(blockQuestions);
+                    }
+                }
+            }
+        }
+        return Optional.of(section);
+    }
+
+    /**
+     * Загружает тему со всеми блоками для генерации PDF.
+     */
+    @Transactional(readOnly = true)
+    public Optional<Topic> getTopicWithBlocks(Long topicId) {
+        Optional<Topic> topicOpt = topicRepository.findByIdWithBlocks(topicId);
+        if (topicOpt.isEmpty()) return Optional.empty();
+
+        Topic topic = topicOpt.get();
+        // Загружаем вопросы с вариантами для всех блоков темы
+        List<Long> blockIds = topic.getBlocks().stream().map(Block::getId).toList();
+        if (!blockIds.isEmpty()) {
+            List<Question> allQuestions = questionRepository.findAllByBlockIdWithOptions(blockIds);
+            Map<Long, List<Question>> questionsByBlock = allQuestions.stream()
+                    .collect(Collectors.groupingBy(q -> q.getBlock().getId()));
+            for (Block block : topic.getBlocks()) {
+                List<Question> blockQuestions = questionsByBlock.getOrDefault(block.getId(), List.of());
+                block.getQuestions().clear();
+                block.getQuestions().addAll(blockQuestions);
+            }
+        }
+        return Optional.of(topic);
     }
 }

@@ -45,6 +45,9 @@ public class TelegramBotHandler extends BaseHandler {
     private final ObjectMapper objectMapper;
     private final UserProgressCleanupService progressCleanupService;
     private final UserLockService userLockService;
+    private final UserSettingsService userSettingsService;
+    private final MaterialPdfGenerator materialPdfGenerator;
+    private final CloudStorageFacade cloudStorageFacade;
 
     @Value("${message.max-length:2000}")
     private int maxMessageLength;
@@ -79,7 +82,9 @@ public class TelegramBotHandler extends BaseHandler {
                               ObjectMapper objectMapper,
                               UserProgressCleanupService progressCleanupService,
                               UserStudyTimeRepository userStudyTimeRepository,
-                              UserLockService userLockService) {
+                              UserLockService userLockService,
+                              MaterialPdfGenerator materialPdfGenerator,
+                              CloudStorageFacade cloudStorageFacade) {
         super(new TelegramMessageSender(telegramBot), sessionService, navigationService, adminUserRepository, userSettingsService);
         this.telegramBot = telegramBot;
         this.pdfExportService = pdfExportService;
@@ -90,12 +95,26 @@ public class TelegramBotHandler extends BaseHandler {
         this.objectMapper = objectMapper;
         this.progressCleanupService = progressCleanupService;
         this.userLockService = userLockService;
+        this.userSettingsService = userSettingsService;
+        this.materialPdfGenerator = materialPdfGenerator;
+        this.cloudStorageFacade = cloudStorageFacade;
 
         // Создаём зависимые хендлеры
-        this.courseNavHandler = new CourseNavigationHandler(messageSender, sessionService, navigationService, adminUserRepository, keyboardBuilder, userSettingsService);
-        this.testHandler = new TestHandler(messageSender, sessionService, navigationService, questionRepository, adminUserRepository, answerOptionRepository, userProgressRepository, userMistakeRepository, userTestResultRepository, courseNavHandler, userSettingsService);
-        this.adminHandler = new AdminHandler(messageSender, new TelegramFileDownloader(telegramBot), sessionService, navigationService, courseImportService, courseRepository, keyboardBuilder, sectionRepository, topicRepository, blockRepository, questionRepository, answerOptionRepository, blockImageRepository, questionImageRepository, adminUserRepository, userProgressRepository, userStudyTimeRepository, objectMapper, userSettingsService);
-        this.settingsHandler = new SettingsHandler(messageSender, sessionService, navigationService, adminUserRepository, userSettingsService, progressCleanupService);
+        this.courseNavHandler = new CourseNavigationHandler(
+                messageSender, sessionService, navigationService, adminUserRepository,
+                keyboardBuilder, userSettingsService, materialPdfGenerator, cloudStorageFacade);
+        this.testHandler = new TestHandler(messageSender, sessionService, navigationService,
+                questionRepository, adminUserRepository, answerOptionRepository,
+                userProgressRepository, userMistakeRepository, userTestResultRepository,
+                courseNavHandler, userSettingsService);
+        this.adminHandler = new AdminHandler(messageSender, new TelegramFileDownloader(telegramBot),
+                sessionService, navigationService, courseImportService, courseRepository,
+                keyboardBuilder, sectionRepository, topicRepository, blockRepository,
+                questionRepository, answerOptionRepository, blockImageRepository,
+                questionImageRepository, adminUserRepository, userProgressRepository,
+                userStudyTimeRepository, objectMapper, userSettingsService);
+        this.settingsHandler = new SettingsHandler(messageSender, sessionService, navigationService,
+                adminUserRepository, userSettingsService, progressCleanupService);
     }
 
     private boolean isAdminState(BotState state) {
@@ -283,6 +302,17 @@ public class TelegramBotHandler extends BaseHandler {
                     testHandler.handleTestCourse(userId, messageId, Long.parseLong(parts[1]));
                     break;
 
+                // экспорт учебных материалов
+                case CALLBACK_EXPORT_TOPIC:
+                    courseNavHandler.handleExportTopic(userId, messageId, data);   // ← теперь передаём весь data
+                    break;
+                case CALLBACK_EXPORT_SECTION:
+                    courseNavHandler.handleExportSection(userId, messageId, data); // ← теперь передаём весь data
+                    break;
+                case CALLBACK_EXPORT_COURSE:
+                    courseNavHandler.handleExportCourse(userId, messageId, data);  // ← теперь передаём весь data
+                    break;
+
                 // администрирование
                 case CALLBACK_CREATE_COURSE:
                     if (!isAdmin(userId)) return;
@@ -419,8 +449,11 @@ public class TelegramBotHandler extends BaseHandler {
                 case CALLBACK_SETTINGS_RESET_CONFIRM:
                     settingsHandler.resetProgress(userId, messageId);
                     break;
+                case CALLBACK_SETTINGS_PDF_QUESTIONS:
+                    settingsHandler.togglePdfQuestions(userId, messageId);
+                    break;
 
-                // привязка аккаунтов (новые)
+                // привязка аккаунтов
                 case CALLBACK_LINK_GENERATE:
                     linkHandler.generateCode(userId, Platform.TELEGRAM,
                             new TelegramMessageSenderAdapter(telegramBot, sessionService, userId));

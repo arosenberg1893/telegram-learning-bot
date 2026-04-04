@@ -58,7 +58,18 @@ public class TelegramMessageSender implements MessageSender {
         if (keyboard != null) req.replyMarkup(toInlineKeyboardMarkup(keyboard));
         var resp = bot.execute(req);
         if (!resp.isOk()) {
-            log.error("[TG] editMenu failed for user {}: {}", userId, resp.description());
+            // Telegram не позволяет редактировать сообщения без текста (фото, документы и т.п.)
+            // В таком случае удаляем старое и отправляем новое сообщение
+            if (resp.description() != null && resp.description().contains("there is no text in the message")) {
+                log.debug("[TG] editMenu: message {} has no text, deleting and sending new", messageId);
+                bot.execute(new DeleteMessage(userId, messageId));
+                var sendReq = new com.pengrad.telegrambot.request.SendMessage(userId, text)
+                        .parseMode(ParseMode.Markdown);
+                if (keyboard != null) sendReq.replyMarkup(toInlineKeyboardMarkup(keyboard));
+                bot.execute(sendReq);
+            } else {
+                log.error("[TG] editMenu failed for user {}: {}", userId, resp.description());
+            }
         }
     }
 
@@ -90,8 +101,11 @@ public class TelegramMessageSender implements MessageSender {
     @Override
     public Integer sendDocument(long userId, byte[] data, String fileName, String caption, BotKeyboard keyboard) {
         var req = new SendDocument(userId, data)
-                .fileName(fileName)
-                .caption(caption);
+                .fileName(fileName);
+        // caption(null) вызывает NPE внутри библиотеки — передаём только непустой caption
+        if (caption != null && !caption.isEmpty()) {
+            req.caption(caption);
+        }
         if (keyboard != null) req.replyMarkup(toInlineKeyboardMarkup(keyboard));
         var resp = bot.execute(req);
         if (resp.isOk()) {
