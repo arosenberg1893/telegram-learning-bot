@@ -4,9 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lbt.telegram_learning_bot.bot.BotState;
 import com.lbt.telegram_learning_bot.bot.PendingImage;
 import com.lbt.telegram_learning_bot.bot.UserContext;
-import com.lbt.telegram_learning_bot.dto.CourseNameDescDto;
-import com.lbt.telegram_learning_bot.dto.SectionNameDescDto;
-import com.lbt.telegram_learning_bot.dto.TopicImportDto;
+import com.lbt.telegram_learning_bot.dto.*;
 import com.lbt.telegram_learning_bot.entity.*;
 import com.lbt.telegram_learning_bot.exception.InvalidJsonException;
 import com.lbt.telegram_learning_bot.platform.BotButton;
@@ -18,6 +16,7 @@ import com.lbt.telegram_learning_bot.service.CourseImportService;
 import com.lbt.telegram_learning_bot.service.NavigationService;
 import com.lbt.telegram_learning_bot.service.UserSessionService;
 import com.lbt.telegram_learning_bot.service.UserSettingsService;
+import com.lbt.telegram_learning_bot.service.ZipCourseImportService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,6 +31,7 @@ import static com.lbt.telegram_learning_bot.util.Constants.*;
 public class AdminHandler extends BaseHandler {
 
     private final CourseImportService courseImportService;
+    private final ZipCourseImportService zipCourseImportService;
     private final FileDownloader fileDownloader;
     private final CourseRepository courseRepository;
     private final SectionRepository sectionRepository;
@@ -52,6 +52,7 @@ public class AdminHandler extends BaseHandler {
                         UserSessionService sessionService,
                         NavigationService navigationService,
                         CourseImportService courseImportService,
+                        ZipCourseImportService zipCourseImportService,
                         CourseRepository courseRepository,
                         KeyboardBuilder keyboardBuilder,
                         SectionRepository sectionRepository,
@@ -68,6 +69,7 @@ public class AdminHandler extends BaseHandler {
                         UserSettingsService userSettingsService) {
         super(messageSender, sessionService, navigationService, adminUserRepository, userSettingsService);
         this.courseImportService = courseImportService;
+        this.zipCourseImportService = zipCourseImportService;
         this.fileDownloader = fileDownloader;
         this.courseRepository = courseRepository;
         this.sectionRepository = sectionRepository;
@@ -94,6 +96,41 @@ public class AdminHandler extends BaseHandler {
             promptCurrentImage(userId, messageId);
         } else if (state == BotState.EDIT_TOPIC_JSON) {
             editMessage(userId, messageId, MSG_SEND_JSON_TOPIC, createAdminCancelKeyboardWithBackToTopics());
+        } else if (state == BotState.AWAITING_SECTION_JSON) {
+            promptEditSectionJson(userId, messageId);
+        }
+    }
+
+    private boolean isZipFile(byte[] content) {
+        return content.length > 4 &&
+                content[0] == 0x50 && content[1] == 0x4B &&
+                content[2] == 0x03 && content[3] == 0x04;
+    }
+
+    private void processCourseZip(Long userId, byte[] fileContent) {
+        Integer progressMessageId = sendProgressMessage(userId);
+        try {
+            InputStream inputStream = new ByteArrayInputStream(fileContent);
+            Course course = zipCourseImportService.importCourseFromZip(inputStream);
+            List<PendingImage> pending = courseImportService.collectCourseImages(course.getId());
+            if (!pending.isEmpty()) {
+                UserContext context = sessionService.getCurrentContext(userId);
+                context.setPendingImages(pending);
+                context.setCurrentImageIndex(0);
+                sessionService.updateSession(userId, BotState.AWAITING_IMAGE, context);
+                requestNextImage(userId, null);
+            } else {
+                sendMessage(userId, "Успешно. Курс \"" + course.getTitle() + "\" добавлен. Изображения не требуются.", createBackToMainKeyboard());
+                sessionService.updateSessionState(userId, BotState.MAIN_MENU);
+            }
+        } catch (InvalidJsonException e) {
+            log.warn("JSON validation error: {}", e.getMessage());
+            sendMessage(userId, e.getMessage(), createRetryOrCancelKeyboard());
+        } catch (Exception e) {
+            log.error("Error importing course from ZIP", e);
+            sendMessage(userId, "Ошибка импорта курса из ZIP: " + e.getMessage(), createRetryOrCancelKeyboard());
+        } finally {
+            if (progressMessageId != null) deleteMessage(userId, progressMessageId);
         }
     }
 
@@ -101,6 +138,17 @@ public class AdminHandler extends BaseHandler {
         try {
             byte[] fileContent = fileDownloader.downloadFile(fileReference);
             BotState currentState = sessionService.getCurrentState(userId);
+
+            if (isZipFile(fileContent)) {
+                if (currentState == BotState.AWAITING_COURSE_JSON) {
+                    processCourseZip(userId, fileContent);
+                } else {
+                    sendMessage(userId, MSG_UNEXPECTED_FILE, createCancelKeyboard());
+                }
+                return;
+            }
+
+            // Обычный JSON
             if (currentState == BotState.AWAITING_COURSE_JSON) {
                 processCourseJson(userId, fileContent);
             } else if (currentState == BotState.EDIT_COURSE_NAME_DESC) {
@@ -109,6 +157,8 @@ public class AdminHandler extends BaseHandler {
                 processSectionNameDescJson(userId, fileContent);
             } else if (currentState == BotState.EDIT_TOPIC_JSON) {
                 processTopicJson(userId, fileContent);
+            } else if (currentState == BotState.AWAITING_SECTION_JSON) {
+                processSectionJson(userId, fileContent);
             } else {
                 sendMessage(userId, MSG_UNEXPECTED_FILE, createCancelKeyboard());
             }
@@ -220,7 +270,8 @@ public class AdminHandler extends BaseHandler {
         String text = MSG_WHAT_TO_CHANGE_SECTION;
         BotKeyboard keyboard = new BotKeyboard().addRow(
                 BotButton.callback(BUTTON_NAME_DESC, CALLBACK_EDIT_SECTION_ACTION + ":" + ACTION_NAME_DESC),
-                BotButton.callback(BUTTON_TOPICS, CALLBACK_EDIT_SECTION_ACTION + ":" + ACTION_TOPICS)
+                BotButton.callback(BUTTON_TOPICS, CALLBACK_EDIT_SECTION_ACTION + ":" + ACTION_TOPICS),
+                BotButton.callback("📦 Заменить раздел (JSON)", CALLBACK_EDIT_SECTION_ACTION + ":" + ACTION_REPLACE_SECTION)
         ).addRow(BotButton.callback(BUTTON_BACK, CALLBACK_ADMIN_BACK_TO_SECTIONS));
         editMessage(userId, messageId, text, keyboard);
         sessionService.updateSessionState(userId, BotState.EDIT_SECTION_NAME_DESC);
@@ -239,6 +290,40 @@ public class AdminHandler extends BaseHandler {
                     result, sectionId, CALLBACK_SELECT_TOPIC_FOR_EDIT, CALLBACK_ADMIN_BACK_TO_SECTIONS);
             editMessage(userId, messageId, text, keyboard);
             sessionService.updateSessionState(userId, BotState.EDIT_SECTION_CHOOSE_TOPIC);
+        } else if (ACTION_REPLACE_SECTION.equals(action)) {
+            promptEditSectionJson(userId, messageId);
+        }
+    }
+
+    private void promptEditSectionJson(Long userId, Integer messageId) {
+        editMessage(userId, messageId, MSG_SEND_JSON_SECTION, createAdminCancelKeyboardWithBackToSections());
+        sessionService.updateSessionState(userId, BotState.AWAITING_SECTION_JSON);
+    }
+
+    private void processSectionJson(Long userId, byte[] fileContent) {
+        Integer progressMessageId = sendProgressMessage(userId);
+        try {
+            InputStream inputStream = new ByteArrayInputStream(fileContent);
+            SectionImportDto dto = objectMapper.readValue(inputStream, SectionImportDto.class);
+            UserContext context = sessionService.getCurrentContext(userId);
+            Long sectionId = context.getEditingSectionId();
+            Section existingSection = sectionRepository.findById(sectionId)
+                    .orElseThrow(() -> new RuntimeException("Section not found"));
+            Section updatedSection = courseImportService.importSection(dto, existingSection);
+            sendMessage(userId, "Раздел \"" + updatedSection.getTitle() + "\" успешно заменён.");
+            Long courseId = updatedSection.getCourse().getId();
+            context.setEditingCourseId(courseId);
+            sessionService.updateSessionContext(userId, context);
+            showEditCourseSectionsPage(userId, null, courseId, 0, ADMIN_DEFAULT_PAGE_SIZE);
+            sessionService.updateSessionState(userId, BotState.EDIT_COURSE_SECTION_CHOOSE);
+        } catch (InvalidJsonException e) {
+            log.warn("Section JSON validation error: {}", e.getMessage());
+            sendMessage(userId, e.getMessage(), createRetryOrCancelKeyboard());
+        } catch (Exception e) {
+            log.error("Error processing section JSON", e);
+            sendMessage(userId, MSG_JSON_PARSE_ERROR, createRetryOrCancelKeyboard());
+        } finally {
+            if (progressMessageId != null) deleteMessage(userId, progressMessageId);
         }
     }
 
@@ -349,7 +434,6 @@ public class AdminHandler extends BaseHandler {
             sendMessage(userId, response);
             context.setEditingCourseId(courseId);
             sessionService.updateSessionContext(userId, context);
-            // Используем стандартный размер страницы для административных функций
             var result = navigationService.getSectionsPage(courseId, 0, ADMIN_DEFAULT_PAGE_SIZE);
             String text = MSG_SELECT_SECTION;
             BotKeyboard keyboard = keyboardBuilder.buildSectionsKeyboardForAdminBot(
@@ -507,7 +591,6 @@ public class AdminHandler extends BaseHandler {
         }
     }
 
-    // Перегрузка для обратного вызова с параметрами (если переданы sectionId и page)
     public void handleBackToTopicsFromEdit(Long userId, Integer messageId, Long sectionId, int page, int pageSize) {
         showEditTopicsPage(userId, messageId, sectionId, page, pageSize);
     }
@@ -549,5 +632,9 @@ public class AdminHandler extends BaseHandler {
         BotKeyboard keyboard = new BotKeyboard().addRow(BotButton.callback(BUTTON_RETRY, CALLBACK_RETRY))
                 .addRow(BotButton.callback(BUTTON_CANCEL, backCallback));
         sendMessage(userId, errorMessage, keyboard);
+    }
+
+    private BotKeyboard createAdminCancelKeyboardWithBackToSections() {
+        return BotKeyboard.of(BotButton.callback(BUTTON_CANCEL, CALLBACK_ADMIN_BACK_TO_SECTIONS));
     }
 }

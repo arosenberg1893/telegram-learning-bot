@@ -21,6 +21,5 @@ public class UserSettings {
     private Integer pageSize = 5;                   // количество элементов на странице
     private Integer testQuestionsPerBlock = 2;      // вопросов на блок в тестах раздела/курса
     private Boolean showExplanations = true;        // показывать пояснения после ответа
-    private Boolean notificationsEnabled = false;   // уведомления о новых курсах
-    private Boolean includeQuestionsInPdf = false;  // включать вопросы и ответы в экспорт PDF
+    private Boolean includeQuestionsInPdf = true;  // включать вопросы и ответы в экспорт PDF
 }

@@ -75,17 +75,16 @@ public class KeyboardBuilder {
      */
     public BotKeyboard buildSectionsKeyboardBot(PaginationResult<Section> result, Long userId,
                                                 Long courseId, boolean withTest, String selectAction) {
-
         BotKeyboard keyboard = new BotKeyboard();
         for (Section section : result.getItems()) {
+            int sectionNumber = section.getOrderIndex() + 1; // нумерация с 1
             String sectionEmoji = navigationService.getSectionStatusEmoji(userId, section.getId());
-            String title = sectionEmoji + " " + section.getTitle();
+            String title = sectionEmoji + " " + sectionNumber + ". " + section.getTitle();
 
             if (withTest) {
                 String testEmoji = navigationService.getSectionTestStatus(userId, section.getId());
                 String testButtonText = testEmoji + " Тест";
 
-                // ← ИЗМЕНЕНИЕ: PDF-кнопка передаёт page и courseId
                 keyboard.addRow(
                         BotButton.callback(title, selectAction + ":" + section.getId()),
                         BotButton.callback(testButtonText, "test_section:" + section.getId()),
@@ -106,18 +105,18 @@ public class KeyboardBuilder {
      * Строит клавиатуру для списка тем.
      */
     public BotKeyboard buildTopicsKeyboardBot(PaginationResult<Topic> result, Long userId,
-                                              Long sectionId, boolean withTest, String selectAction) {
-
+                                              Long sectionId, int sectionNumber,
+                                              boolean withTest, String selectAction) {
         BotKeyboard keyboard = new BotKeyboard();
         for (Topic topic : result.getItems()) {
+            int topicNumber = topic.getOrderIndex() + 1; // нумерация тем внутри раздела с 1
             String topicEmoji = navigationService.getTopicStatusEmoji(userId, topic.getId());
-            String title = topicEmoji + " " + topic.getTitle();
+            String title = topicEmoji + " " + sectionNumber + "." + topicNumber + " " + topic.getTitle();
 
             if (withTest) {
                 String testEmoji = navigationService.getTopicTestStatus(userId, topic.getId());
                 String testButtonText = testEmoji + " Тест";
 
-                // ← ИЗМЕНЕНИЕ: PDF-кнопка передаёт page и sectionId
                 keyboard.addRow(
                         BotButton.callback(title, selectAction + ":" + topic.getId()),
                         BotButton.callback(testButtonText, "test_topic:" + topic.getId()),

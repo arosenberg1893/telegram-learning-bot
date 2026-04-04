@@ -33,35 +33,31 @@ public class SettingsHandler extends BaseHandler {
     public void showSettingsMenu(Long userId, Integer messageId) {
         UserSettings settings = userSettingsService.getSettings(userId);
         String text = String.format("""
-                        ⚙️ **Настройки**
-                        
-                        🔀 Перемешивать варианты: %s
-                        📄 Размер страницы: %d
-                        ❓ Вопросов в тесте (на блок): %d
-                        💬 Показывать пояснения: %s
-                        🔔 Уведомления о новых курсах: %s
-                        📄 Вопросы в PDF: %s
-                        """,
+                    ⚙️ **Настройки**
+                    
+                    🔀 Перемешивать варианты: %s
+                    📄 Размер страницы: %d
+                    ❓ Вопросов в тесте (на блок): %d
+                    💬 Показывать пояснения: %s
+                    📄 Вопросы в PDF: %s
+                    """,
                 settings.getShuffleOptions() ? "✅" : "❌",
                 settings.getPageSize(),
                 settings.getTestQuestionsPerBlock(),
                 settings.getShowExplanations() ? "✅" : "❌",
-                settings.getNotificationsEnabled() ? "✅" : "❌",
                 settings.getIncludeQuestionsInPdf() ? "✅" : "❌"
         );
 
         BotKeyboard keyboard = new BotKeyboard()
                 .addRow(BotButton.callback("🔀 Перемешивание", CALLBACK_SETTINGS_SHUFFLE));
 
-        // Для VK скрываем опцию изменения размера страницы
         if (messageSender.getPlatform() != Platform.VK) {
             keyboard.addRow(BotButton.callback("📄 Размер страницы", CALLBACK_SETTINGS_PAGESIZE));
         }
 
         keyboard.addRow(BotButton.callback("❓ Кол-во вопросов", CALLBACK_SETTINGS_QUESTIONS),
                         BotButton.callback("💬 Пояснения", CALLBACK_SETTINGS_EXPLANATIONS))
-                .addRow(BotButton.callback("🔔 Уведомления", CALLBACK_SETTINGS_NOTIFICATIONS),
-                        BotButton.callback("🗑️ Сброс прогресса", CALLBACK_SETTINGS_RESET))
+                .addRow(BotButton.callback("🗑️ Сброс прогресса", CALLBACK_SETTINGS_RESET))
                 .addRow(BotButton.callback("📄 Вопросы в PDF", CALLBACK_SETTINGS_PDF_QUESTIONS))
                 .addRow(BotButton.callback("🔗 Привязать аккаунт", CALLBACK_LINK_GENERATE))
                 .addRow(BotButton.callback(BUTTON_MAIN_MENU, CALLBACK_MAIN_MENU));
@@ -82,12 +78,6 @@ public class SettingsHandler extends BaseHandler {
     public void toggleExplanations(Long userId, Integer messageId) {
         userSettingsService.updateSettings(userId, settings ->
                 settings.setShowExplanations(!settings.getShowExplanations()));
-        showSettingsMenu(userId, messageId);
-    }
-
-    public void toggleNotifications(Long userId, Integer messageId) {
-        userSettingsService.updateSettings(userId, settings ->
-                settings.setNotificationsEnabled(!settings.getNotificationsEnabled()));
         showSettingsMenu(userId, messageId);
     }
 

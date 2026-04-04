@@ -42,6 +42,7 @@ public class VkBotHandler {
     private final UserSettingsService userSettingsService;
     private final MaterialPdfGenerator materialPdfGenerator;
     private final CloudStorageFacade cloudStorageFacade;
+    private final ZipCourseImportService zipCourseImportService;
 
     @Value("${vk.bot.page-size:3}")
     private int vkPageSize;
@@ -71,6 +72,7 @@ public class VkBotHandler {
                         QuestionImageRepository questionImageRepository,
                         ObjectMapper objectMapper,
                         CourseImportService courseImportService,
+                        ZipCourseImportService zipCourseImportService,
                         UserProgressCleanupService progressCleanupService,
                         UserStudyTimeRepository userStudyTimeRepository,
                         VkHttpClient vkHttpClient,
@@ -88,6 +90,7 @@ public class VkBotHandler {
         this.userSettingsService = userSettingsService;
         this.materialPdfGenerator = materialPdfGenerator;
         this.cloudStorageFacade = cloudStorageFacade;
+        this.zipCourseImportService = zipCourseImportService;
 
         this.courseNavHandler = new CourseNavigationHandler(sender, sessionService, navigationService,
                 adminUserRepository, keyboardBuilder, userSettingsService, materialPdfGenerator, cloudStorageFacade);
@@ -96,11 +99,11 @@ public class VkBotHandler {
                 userProgressRepository, userMistakeRepository, userTestResultRepository,
                 courseNavHandler, userSettingsService);
         this.adminHandler = new AdminHandler(sender, new VkFileDownloader(vkHttpClient),
-                sessionService, navigationService, courseImportService, courseRepository,
-                keyboardBuilder, sectionRepository, topicRepository, blockRepository,
-                questionRepository, answerOptionRepository, blockImageRepository,
-                questionImageRepository, adminUserRepository, userProgressRepository,
-                userStudyTimeRepository, objectMapper, userSettingsService);
+                sessionService, navigationService, courseImportService, zipCourseImportService,
+                courseRepository, keyboardBuilder, sectionRepository, topicRepository,
+                blockRepository, questionRepository, answerOptionRepository,
+                blockImageRepository, questionImageRepository, adminUserRepository,
+                userProgressRepository, userStudyTimeRepository, objectMapper, userSettingsService);
         this.settingsHandler = new SettingsHandler(sender, sessionService, navigationService,
                 adminUserRepository, userSettingsService, progressCleanupService);
     }
@@ -369,9 +372,6 @@ public class VkBotHandler {
                     break;
                 case CALLBACK_SETTINGS_EXPLANATIONS:
                     settingsHandler.toggleExplanations(internalUserId, messageId);
-                    break;
-                case CALLBACK_SETTINGS_NOTIFICATIONS:
-                    settingsHandler.toggleNotifications(internalUserId, messageId);
                     break;
                 case CALLBACK_SETTINGS_RESET:
                     settingsHandler.confirmResetProgress(internalUserId, messageId);

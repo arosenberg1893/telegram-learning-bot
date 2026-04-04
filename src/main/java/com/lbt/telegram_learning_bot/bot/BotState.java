@@ -29,5 +29,6 @@ public enum BotState {
     EDIT_SECTION_CHOOSE_TOPIC,
     AWAITING_IMAGES,
     AWAITING_LINK_CODE,
-    AWAITING_PAGE_SIZE_INPUT   // ожидание ввода числа для размера страницы
+    AWAITING_PAGE_SIZE_INPUT,
+    AWAITING_SECTION_JSON// ожидание ввода числа для размера страницы
 }

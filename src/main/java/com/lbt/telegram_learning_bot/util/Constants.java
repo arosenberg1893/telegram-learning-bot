@@ -1,5 +1,7 @@
 package com.lbt.telegram_learning_bot.util;
 
+import com.lbt.telegram_learning_bot.bot.BotState;
+
 public final class Constants {
     private Constants() {}
 
@@ -122,7 +124,6 @@ public final class Constants {
     public static final String CALLBACK_SETTINGS_PAGESIZE_OTHER = "settings_pagesize_other";
     public static final String CALLBACK_SETTINGS_QUESTIONS = "settings_questions";
     public static final String CALLBACK_SETTINGS_EXPLANATIONS = "settings_explanations";
-    public static final String CALLBACK_SETTINGS_NOTIFICATIONS = "settings_notifications";
     public static final String CALLBACK_SETTINGS_RESET = "settings_reset";
     public static final String CALLBACK_SETTINGS_PAGESIZE_SET = "settings_pagesize_set";
     public static final String CALLBACK_SETTINGS_QUESTIONS_SET = "settings_questions_set";
@@ -288,4 +289,8 @@ public final class Constants {
     // ========== Константы администратора ==========
     public static final int ADMIN_PAGE_SIZE = 5;
     public static final int ADMIN_DEFAULT_PAGE_SIZE = 5;
+
+    public static final String ACTION_REPLACE_SECTION = "replace_section";
+    public static final String MSG_SEND_JSON_SECTION = "Отправьте JSON-файл с полным содержимым раздела (темы, блоки, вопросы).";
+    public static final BotState AWAITING_SECTION_JSON = BotState.AWAITING_SECTION_JSON; // добавить в enum BotState
 }

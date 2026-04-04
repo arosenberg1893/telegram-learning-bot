@@ -528,22 +528,27 @@ public class CourseNavigationHandler extends BaseHandler {
         Instant lastAccessed = navigationService.getSectionLastAccessed(userId, sectionId);
         String lastAccessedStr = formatLastAccessed(lastAccessed);
 
+        // Получаем номер раздела (порядок в курсе)
+        int sectionNumber = navigationService.getSection(sectionId)
+                .map(Section::getOrderIndex)
+                .orElse(0) + 1;
+
         if (messageId != null && page == 0) {
             String text = String.format(FORMAT_TOPICS_HEADER,
                     sectionTitle, sectionDescription, lastAccessedStr, page + 1, result.getTotalPages(), result.getTotalItems());
-            BotKeyboard keyboard = keyboardBuilder.buildTopicsKeyboardBot(result, userId, sectionId, true, CALLBACK_SELECT_TOPIC);
+            BotKeyboard keyboard = keyboardBuilder.buildTopicsKeyboardBot(result, userId, sectionId, sectionNumber, true, CALLBACK_SELECT_TOPIC);
             editMessage(userId, messageId, text, keyboard);
             navigationService.updateSectionLastAccessed(userId, sectionId);
         } else if (messageId != null) {
             String text = String.format(FORMAT_TOPICS_HEADER2,
                     sectionTitle, page + 1, result.getTotalPages(), result.getTotalItems(), lastAccessedStr);
-            BotKeyboard keyboard = keyboardBuilder.buildTopicsKeyboardBot(result, userId, sectionId, true, CALLBACK_SELECT_TOPIC);
+            BotKeyboard keyboard = keyboardBuilder.buildTopicsKeyboardBot(result, userId, sectionId, sectionNumber, true, CALLBACK_SELECT_TOPIC);
             editMessage(userId, messageId, text, keyboard);
         } else {
             sendMessage(userId, String.format(FORMAT_SECTION_HEADER, sectionTitle, sectionDescription, lastAccessedStr));
             String text = String.format("📌 **Темы** раздела «%s» (страница %d из %d) – всего %d тем.\nВыберите тему.",
                     sectionTitle, page + 1, result.getTotalPages(), result.getTotalItems());
-            BotKeyboard keyboard = keyboardBuilder.buildTopicsKeyboardBot(result, userId, sectionId, true, CALLBACK_SELECT_TOPIC);
+            BotKeyboard keyboard = keyboardBuilder.buildTopicsKeyboardBot(result, userId, sectionId, sectionNumber, true, CALLBACK_SELECT_TOPIC);
             sendMessage(userId, text, keyboard);
             if (page == 0) {
                 navigationService.updateSectionLastAccessed(userId, sectionId);

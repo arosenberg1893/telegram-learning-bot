@@ -48,6 +48,7 @@ public class TelegramBotHandler extends BaseHandler {
     private final UserSettingsService userSettingsService;
     private final MaterialPdfGenerator materialPdfGenerator;
     private final CloudStorageFacade cloudStorageFacade;
+    private final ZipCourseImportService zipCourseImportService;
 
     @Value("${message.max-length:2000}")
     private int maxMessageLength;
@@ -73,6 +74,7 @@ public class TelegramBotHandler extends BaseHandler {
                               UserMistakeRepository userMistakeRepository,
                               UserTestResultRepository userTestResultRepository,
                               CourseImportService courseImportService,
+                              ZipCourseImportService zipCourseImportService,   // новый параметр
                               CourseRepository courseRepository,
                               SectionRepository sectionRepository,
                               TopicRepository topicRepository,
@@ -98,6 +100,7 @@ public class TelegramBotHandler extends BaseHandler {
         this.userSettingsService = userSettingsService;
         this.materialPdfGenerator = materialPdfGenerator;
         this.cloudStorageFacade = cloudStorageFacade;
+        this.zipCourseImportService = zipCourseImportService;
 
         // Создаём зависимые хендлеры
         this.courseNavHandler = new CourseNavigationHandler(
@@ -108,11 +111,11 @@ public class TelegramBotHandler extends BaseHandler {
                 userProgressRepository, userMistakeRepository, userTestResultRepository,
                 courseNavHandler, userSettingsService);
         this.adminHandler = new AdminHandler(messageSender, new TelegramFileDownloader(telegramBot),
-                sessionService, navigationService, courseImportService, courseRepository,
-                keyboardBuilder, sectionRepository, topicRepository, blockRepository,
-                questionRepository, answerOptionRepository, blockImageRepository,
-                questionImageRepository, adminUserRepository, userProgressRepository,
-                userStudyTimeRepository, objectMapper, userSettingsService);
+                sessionService, navigationService, courseImportService, zipCourseImportService,
+                courseRepository, keyboardBuilder, sectionRepository, topicRepository,
+                blockRepository, questionRepository, answerOptionRepository,
+                blockImageRepository, questionImageRepository, adminUserRepository,
+                userProgressRepository, userStudyTimeRepository, objectMapper, userSettingsService);
         this.settingsHandler = new SettingsHandler(messageSender, sessionService, navigationService,
                 adminUserRepository, userSettingsService, progressCleanupService);
     }
@@ -427,9 +430,6 @@ public class TelegramBotHandler extends BaseHandler {
                     break;
                 case CALLBACK_SETTINGS_EXPLANATIONS:
                     settingsHandler.toggleExplanations(userId, messageId);
-                    break;
-                case CALLBACK_SETTINGS_NOTIFICATIONS:
-                    settingsHandler.toggleNotifications(userId, messageId);
                     break;
                 case CALLBACK_SETTINGS_RESET:
                     settingsHandler.confirmResetProgress(userId, messageId);
