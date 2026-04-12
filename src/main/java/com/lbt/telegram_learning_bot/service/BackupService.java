@@ -76,8 +76,7 @@ public class BackupService {
         log.info("Starting pg_dump for database: {} at {}:{}", dbName, host, port);
 
         ProcessBuilder pb = new ProcessBuilder(
-                "pg_dump", "-h", host, "-p", port, "-U", dbUser, "-d", dbName, "-Fc", "-O", "-x",
-                "--exclude-extension=pg_trgm"
+                "pg_dump", "-h", host, "-p", port, "-U", dbUser, "-d", dbName, "-Fc", "-O", "-x"
         );
         pb.environment().put("PGPASSWORD", dbPassword);
         pb.redirectErrorStream(true);
@@ -273,12 +272,5 @@ public class BackupService {
             }
         }
         return LocalDateTime.MIN;
-    }
-
-    private String extractHost(String jdbcUrl) {
-        // jdbc:postgresql://host:port/dbname
-        Pattern p = Pattern.compile("jdbc:postgresql://([^:/]+)(?::\\d+)?/");
-        Matcher m = p.matcher(jdbcUrl);
-        return m.find() ? m.group(1) : "localhost";
     }
 }

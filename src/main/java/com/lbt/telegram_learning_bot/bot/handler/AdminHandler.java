@@ -264,7 +264,8 @@ public class AdminHandler extends BaseHandler {
         } catch (Exception e) {
             log.error("Manual backup failed for user {}", userId, e);
             BackupLogHelper.logManualBackupError(userId, e.getMessage());
-            sendMessage(userId, "❌ Ошибка при создании резервной копии: " + e.getMessage(), createBackToMainKeyboard());
+            String errorMsg = e.getMessage().replace("_", "\\_").replace("*", "\\*").replace("[", "\\[").replace("]", "\\]");
+            sendMessage(userId, "❌ Ошибка при создании резервной копии: " + errorMsg, createBackToMainKeyboard());
         } finally {
             if (progressMsgId != null) deleteMessage(userId, progressMsgId);
         }
