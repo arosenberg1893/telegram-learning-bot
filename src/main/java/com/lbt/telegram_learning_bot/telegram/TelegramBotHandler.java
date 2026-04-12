@@ -8,7 +8,6 @@ import com.lbt.telegram_learning_bot.platform.BotButton;
 import com.lbt.telegram_learning_bot.platform.BotKeyboard;
 import com.lbt.telegram_learning_bot.platform.Platform;
 import com.lbt.telegram_learning_bot.repository.*;
-import com.lbt.telegram_learning_bot.repository.UserStudyTimeRepository;
 import com.lbt.telegram_learning_bot.service.*;
 import com.lbt.telegram_learning_bot.service.cloud.CloudStorageFacade;
 import com.pengrad.telegrambot.TelegramBot;

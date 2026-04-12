@@ -1,6 +1,7 @@
 package com.lbt.telegram_learning_bot.dto;
 
 import lombok.Data;
+
 import java.util.List;
 
 @Data
