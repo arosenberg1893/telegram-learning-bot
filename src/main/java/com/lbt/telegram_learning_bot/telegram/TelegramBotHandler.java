@@ -127,45 +127,23 @@ public class TelegramBotHandler extends BaseHandler {
                 adminUserRepository, userSettingsService, progressCleanupService, maintenanceModeService);
     }
 
-    private boolean isAdminState(BotState state) {
-        return state == BotState.EDIT_COURSE_SECTION_CHOOSE ||
-                state == BotState.EDIT_SECTION_CHOOSE_TOPIC ||
-                state == BotState.EDIT_COURSE_NAME_DESC ||
-                state == BotState.EDIT_SECTION_NAME_DESC ||
-                state == BotState.EDIT_TOPIC_JSON ||
-                state == BotState.AWAITING_IMAGE ||
-                state == BotState.AWAITING_COURSE_JSON ||
-                state == BotState.AWAITING_SECTION_JSON ||
-                state == BotState.AWAITING_BACKUP_FILE;
-    }
-
     @Override
     protected void sendMainMenu(Long userId, Integer messageId) {
         if (isMaintenanceBlocked(userId)) {
             sendMaintenanceMessage(getEffectiveUserId(userId));
             return;
         }
-
-        String text = MSG_MAIN_MENU;
-        BotKeyboard keyboard = new BotKeyboard()
-                .addRow(BotButton.callback(BUTTON_MY_COURSES, CALLBACK_MY_COURSES),
-                        BotButton.callback(BUTTON_ALL_COURSES, CALLBACK_ALL_COURSES))
-                .addRow(BotButton.callback(BUTTON_SEARCH, CALLBACK_SEARCH_COURSES),
-                        BotButton.callback(BUTTON_STATISTICS, CALLBACK_STATISTICS))
-                .addRow(BotButton.callback(BUTTON_MISTAKES, CALLBACK_MY_MISTAKES))
-                .addRow(BotButton.callback("⚙️ Настройки", CALLBACK_SETTINGS));
-
+        BotKeyboard keyboard = buildBaseMainMenuKeyboard(userId);
         if (isAdmin(userId)) {
             keyboard.addRow(
                     BotButton.callback("🎓 Adm Курсы", CALLBACK_ADMIN_COURSES_MENU),
                     BotButton.callback("💾 Adm БД", CALLBACK_ADMIN_DB)
             );
         }
-
         if (messageId != null) {
-            editMessage(userId, messageId, text, keyboard);
+            editMessage(userId, messageId, MSG_MAIN_MENU, keyboard);
         } else {
-            sendMessage(userId, text, keyboard);
+            sendMessage(userId, MSG_MAIN_MENU, keyboard);
         }
     }
 
@@ -205,6 +183,8 @@ public class TelegramBotHandler extends BaseHandler {
             if (text == null) return;
 
             BotState currentState = sessionService.getCurrentState(userId);
+            log.debug("handleMessage: userId={}, state={}, text={}", userId, currentState,
+                    text.length() > 50 ? text.substring(0, 50) + "…" : text);
 
             if (text.equals("/start")) {
                 UserContext context = sessionService.getCurrentContext(userId);
@@ -305,7 +285,7 @@ public class TelegramBotHandler extends BaseHandler {
                     break;
                 case CALLBACK_BACK_TO_COURSES:
                     BotState state = sessionService.getCurrentState(userId);
-                    if (isAdminState(state)) {
+                    if (state.isAdminEditState()) {
                         adminHandler.handleBackToCoursesFromEdit(userId, messageId, pageSize);
                     } else {
                         courseNavHandler.handleBackToCourses(userId, messageId, pageSize);

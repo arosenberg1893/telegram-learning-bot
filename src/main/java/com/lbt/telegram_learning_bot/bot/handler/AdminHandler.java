@@ -407,12 +407,71 @@ public class AdminHandler extends BaseHandler {
         }
     }
 
+    /**
+     * Обрабатывает загрузку изображения от администратора.
+     *
+     * @param userId        внутренний ID пользователя
+     * @param fileReference объект-ссылка на файл (byte[] для Telegram,
+     *                      Map для VK) или {@code null}, если платформа не поддерживает загрузку
+     */
     public void handleImageUpload(Long userId, Object fileReference) {
+        BotState currentState = sessionService.getCurrentState(userId);
+        if (currentState != BotState.AWAITING_IMAGE) {
+            // Изображение получено вне ожидаемого потока — игнорируем
+            return;
+        }
         if (fileReference == null) {
             sendMessage(userId, "Загрузка изображений через VK не поддерживается.", createCancelKeyboard());
             return;
         }
-        sendMessage(userId, MSG_PLEASE_SEND_PHOTO, createCancelKeyboard());
+        try {
+            byte[] imageBytes = fileDownloader.downloadFile(fileReference);
+            saveImageToCurrentSlot(userId, imageBytes);
+        } catch (Exception e) {
+            log.error("Error processing image upload for user {}", userId, e);
+            sendMessage(userId, MSG_SAVE_IMAGE_ERROR, createCancelKeyboard());
+        }
+    }
+
+    private void saveImageToCurrentSlot(Long userId, byte[] imageBytes) {
+        UserContext context = sessionService.getCurrentContext(userId);
+        Long entityId = context.getTargetEntityId();
+        String entityType = context.getTargetEntityType();
+
+        if (entityId == null || entityType == null) {
+            log.warn("saveImageToCurrentSlot: entityId or entityType is null for user {}", userId);
+            sendMessage(userId, MSG_SAVE_IMAGE_ERROR, createCancelKeyboard());
+            return;
+        }
+
+        try {
+            // Сохраняем файл на диск во временную директорию
+            java.nio.file.Path dir = java.nio.file.Paths.get("images", entityType);
+            java.nio.file.Files.createDirectories(dir);
+            java.nio.file.Path filePath = dir.resolve(entityId + ".jpg");
+            java.nio.file.Files.write(filePath, imageBytes);
+
+            // Обновляем путь к файлу в базе данных
+            if (ENTITY_BLOCK.equals(entityType)) {
+                blockImageRepository.findById(entityId).ifPresent(bi -> {
+                    bi.setFilePath(filePath.toString());
+                    blockImageRepository.save(bi);
+                });
+            } else if (ENTITY_QUESTION.equals(entityType)) {
+                questionImageRepository.findById(entityId).ifPresent(qi -> {
+                    qi.setFilePath(filePath.toString());
+                    questionImageRepository.save(qi);
+                });
+            }
+
+            // Переходим к следующему изображению
+            context.setCurrentImageIndex(context.getCurrentImageIndex() + 1);
+            sessionService.updateSessionContext(userId, context);
+            requestNextImage(userId, null);
+        } catch (Exception e) {
+            log.error("Failed to save image for entity {} {}", entityType, entityId, e);
+            sendMessage(userId, MSG_SAVE_IMAGE_ERROR, createCancelKeyboard());
+        }
     }
 
     public void promptCreateCourse(Long userId, Integer messageId) {

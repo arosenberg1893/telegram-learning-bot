@@ -121,34 +121,33 @@ public abstract class BaseHandler {
 
     // ================== Вспомогательные методы, не связанные с отправкой ==================
 
+    /**
+     * Отправляет/редактирует главное меню пользователя.
+     * Конкретные платформы (Telegram, VK) переопределяют этот метод,
+     * добавляя кнопки администратора в нужном формате.
+     */
     protected void sendMainMenu(Long userId, Integer messageId) {
         if (isMaintenanceBlocked(userId)) {
             sendMaintenanceMessage(getEffectiveUserId(userId));
             return;
         }
+        BotKeyboard keyboard = buildBaseMainMenuKeyboard(userId);
+        if (messageId != null) {
+            editMessage(userId, messageId, MSG_MAIN_MENU, keyboard);
+        } else {
+            sendMessage(userId, MSG_MAIN_MENU, keyboard);
+        }
+    }
 
-        String text = MSG_MAIN_MENU;
-        BotKeyboard keyboard = new BotKeyboard()
+    /** Строит клавиатуру главного меню без кнопок администратора. */
+    protected BotKeyboard buildBaseMainMenuKeyboard(Long userId) {
+        return new BotKeyboard()
                 .addRow(BotButton.callback(BUTTON_MY_COURSES, CALLBACK_MY_COURSES),
                         BotButton.callback(BUTTON_ALL_COURSES, CALLBACK_ALL_COURSES))
                 .addRow(BotButton.callback(BUTTON_SEARCH, CALLBACK_SEARCH_COURSES),
                         BotButton.callback(BUTTON_STATISTICS, CALLBACK_STATISTICS))
                 .addRow(BotButton.callback(BUTTON_MISTAKES, CALLBACK_MY_MISTAKES))
                 .addRow(BotButton.callback("⚙️ Настройки", CALLBACK_SETTINGS));
-
-        if (isAdmin(userId)) {
-            keyboard.addRow(
-                    BotButton.callback(BUTTON_CREATE_COURSE, CALLBACK_CREATE_COURSE),
-                    BotButton.callback(BUTTON_EDIT_COURSE, CALLBACK_EDIT_COURSE),
-                    BotButton.callback(BUTTON_DELETE_COURSE, CALLBACK_DELETE_COURSE)
-            );
-        }
-
-        if (messageId != null) {
-            editMessage(userId, messageId, text, keyboard);
-        } else {
-            sendMessage(userId, text, keyboard);
-        }
     }
 
     protected boolean isAdmin(Long userId) {

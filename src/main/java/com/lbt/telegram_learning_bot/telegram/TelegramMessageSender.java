@@ -36,18 +36,27 @@ public class TelegramMessageSender implements MessageSender {
         var req = new SendMessage(userId, text).parseMode(ParseMode.Markdown);
         var resp = bot.execute(req);
         if (!resp.isOk()) {
-            log.error("[TG] sendText failed for user {}: {}", userId, resp.description());
+            log.warn("[TG] sendText with Markdown failed for user {}: {}, retrying as plain text", userId, resp.description());
+            var plainResp = bot.execute(new SendMessage(userId, text));
+            if (!plainResp.isOk()) {
+                log.error("[TG] sendText (plain) failed for user {}: {}", userId, plainResp.description());
+            }
         }
     }
 
     @Override
     public void sendMenu(long userId, String text, BotKeyboard keyboard) {
+        InlineKeyboardMarkup markup = toInlineKeyboardMarkup(keyboard);
         var req = new SendMessage(userId, text)
-                .replyMarkup(toInlineKeyboardMarkup(keyboard))
+                .replyMarkup(markup)
                 .parseMode(ParseMode.Markdown);
         var resp = bot.execute(req);
         if (!resp.isOk()) {
-            log.error("[TG] sendMenu failed for user {}: {}", userId, resp.description());
+            log.warn("[TG] sendMenu with Markdown failed for user {}: {}, retrying as plain text", userId, resp.description());
+            var plainResp = bot.execute(new SendMessage(userId, text).replyMarkup(markup));
+            if (!plainResp.isOk()) {
+                log.error("[TG] sendMenu (plain) failed for user {}: {}", userId, plainResp.description());
+            }
         }
     }
 

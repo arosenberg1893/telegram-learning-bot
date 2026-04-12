@@ -262,31 +262,32 @@ public class TestHandler extends BaseHandler {
         }
     }
 
+    /**
+     * Строит текст результата после ответа пользователя.
+     *
+     * <p>Логика упрощена: итоговый экран теста (correct + isLast в testMode)
+     * обрабатывается до вызова этого метода в {@link #handleAnswer},
+     * поэтому здесь такой случай не нужен.</p>
+     */
     private String buildResultText(Long userId, UserContext context, boolean correct, boolean isLast) {
         UserSettings settings = userSettingsService.getSettings(userId);
-        if (context.isTestMode() && isLast && correct) {
-            return String.format(FORMAT_TEST_COMPLETED,
-                    context.getCorrectAnswers(), context.getWrongAnswers(),
-                    context.getCorrectAnswers() + context.getWrongAnswers());
-        } else if (context.isTestMode() && isLast && !correct) {
-            String resultText = MSG_WRONG;
-            if (settings.getShowExplanations()) {
-                resultText += "\n\nПояснение: " + getExplanationForCurrentQuestion(context);
+        String base = correct ? MSG_CORRECT : MSG_WRONG;
+
+        // В режиме теста при последнем вопросе и правильном ответе — итоговый экран
+        // обрабатывается в showTestSummary(), сюда не попадём.
+        // Для остальных случаев: показываем объяснение, если:
+        //   - неверный ответ (в любом режиме)
+        //   - режим изучения (всегда показываем объяснение)
+        boolean showExplanation = settings.getShowExplanations() &&
+                (!correct || !context.isTestMode());
+
+        if (showExplanation) {
+            String explanation = getExplanationForCurrentQuestion(context);
+            if (explanation != null && !explanation.isBlank()) {
+                return base + "\n\nПояснение: " + explanation;
             }
-            return resultText;
-        } else if (context.isTestMode()) {
-            String resultText = correct ? MSG_CORRECT : MSG_WRONG;
-            if (!correct && settings.getShowExplanations()) {
-                resultText += "\n\nПояснение: " + getExplanationForCurrentQuestion(context);
-            }
-            return resultText;
-        } else {
-            String resultText = correct ? MSG_CORRECT : MSG_WRONG;
-            if (settings.getShowExplanations()) {
-                resultText += "\n\nПояснение: " + getExplanationForCurrentQuestion(context);
-            }
-            return resultText;
         }
+        return base;
     }
 
     private void showTestSummary(Long userId, Integer messageId) {

@@ -38,18 +38,14 @@ public class RateLimiterService {
 
     /**
      * Очищает устаревшие записи раз в минуту.
+     * Удаляет записи старше одной минуты, оставляя только записи за текущую минуту.
      */
     @Scheduled(fixedDelay = MILLIS_PER_MINUTE)
     public void cleanOldEntries() {
         long currentMinute = System.currentTimeMillis() / MILLIS_PER_MINUTE;
-        int removed = 0;
-        var iterator = requestCounts.entrySet().iterator();
-        while (iterator.hasNext()) {
-            if (iterator.next().getValue().minute() != currentMinute) {
-                iterator.remove();
-                removed++;
-            }
-        }
+        int sizeBefore = requestCounts.size();
+        requestCounts.entrySet().removeIf(e -> e.getValue().minute() < currentMinute);
+        int removed = sizeBefore - requestCounts.size();
         if (removed > 0) {
             log.debug("Rate limiter cleanup: removed {} stale entries", removed);
         }

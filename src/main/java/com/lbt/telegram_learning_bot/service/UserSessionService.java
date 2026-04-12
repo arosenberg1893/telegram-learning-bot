@@ -76,6 +76,8 @@ public class UserSessionService {
                     try {
                         return BotState.valueOf(session.getState());
                     } catch (IllegalArgumentException e) {
+                        log.warn("Unknown BotState '{}' for user {}, resetting to MAIN_MENU",
+                                session.getState(), userId);
                         return BotState.MAIN_MENU;
                     }
                 })
@@ -84,21 +86,54 @@ public class UserSessionService {
 
     public UserContext getCurrentContext(Long userId) {
         return sessionRepository.findById(userId)
-                .map(session -> {
-                    try {
-                        UserContext ctx = objectMapper.readValue(session.getContext(), UserContext.class);
-                        initializeCollections(ctx);
-                        return ctx;
-                    } catch (JsonProcessingException e) {
-                        log.error("Failed to deserialize user context for user {}", userId, e);
-                        return new UserContext();
-                    }
-                })
+                .map(session -> deserializeContext(userId, session.getContext()))
                 .orElseGet(() -> {
                     UserContext ctx = new UserContext();
                     initializeCollections(ctx);
                     return ctx;
                 });
+    }
+
+    /**
+     * Возвращает состояние и контекст за один вызов к БД.
+     * Используйте вместо двух раздельных вызовов {@link #getCurrentState} + {@link #getCurrentContext},
+     * когда оба значения нужны одновременно.
+     */
+    public SessionSnapshot getSnapshot(Long userId) {
+        return sessionRepository.findById(userId)
+                .map(session -> {
+                    BotState state;
+                    try {
+                        state = BotState.valueOf(session.getState());
+                    } catch (IllegalArgumentException e) {
+                        log.warn("Unknown BotState '{}' for user {}, resetting to MAIN_MENU",
+                                session.getState(), userId);
+                        state = BotState.MAIN_MENU;
+                    }
+                    UserContext ctx = deserializeContext(userId, session.getContext());
+                    return new SessionSnapshot(state, ctx);
+                })
+                .orElseGet(() -> {
+                    UserContext ctx = new UserContext();
+                    initializeCollections(ctx);
+                    return new SessionSnapshot(BotState.MAIN_MENU, ctx);
+                });
+    }
+
+    /** Снимок сессии: состояние + контекст. */
+    public record SessionSnapshot(BotState state, UserContext context) {}
+
+    private UserContext deserializeContext(Long userId, String json) {
+        try {
+            UserContext ctx = objectMapper.readValue(json, UserContext.class);
+            initializeCollections(ctx);
+            return ctx;
+        } catch (JsonProcessingException e) {
+            log.error("Failed to deserialize user context for user {}, returning empty context", userId, e);
+            UserContext ctx = new UserContext();
+            initializeCollections(ctx);
+            return ctx;
+        }
     }
 
     private void initializeCollections(UserContext ctx) {

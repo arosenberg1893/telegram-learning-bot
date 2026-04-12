@@ -387,41 +387,6 @@ public class CourseNavigationHandler extends BaseHandler {
         }
     }
 
-    private void exportPdf(Long userId, Integer messageId, String contentTitle,
-                           PdfSupplier pdfSupplier, String returnCallbackData) {
-        Integer progressMsgId = sendProgressMessage(userId);
-        try {
-            byte[] pdfData = pdfSupplier.generate();
-
-            String safeTitle = contentTitle.replaceAll("[\\\\/:*?\"<>|]", "_");
-            String fileName = safeTitle + ".pdf";
-
-            BotKeyboard returnKeyboard = createReturnKeyboard(returnCallbackData);
-
-            if (messageSender.getPlatform() == Platform.TELEGRAM) {
-                messageSender.sendDocument(userId, pdfData, fileName, null, returnKeyboard);
-            } else {
-                String publicLink = cloudStorageFacade.uploadWithFallback(pdfData, fileName);
-                String linkMessage = String.format(MSG_PDF_READY, publicLink);
-                sendMessage(userId, linkMessage, returnKeyboard);
-            }
-
-            if (progressMsgId != null) {
-                deleteMessage(userId, progressMsgId);
-            }
-            if (messageId != null) {
-                deleteMessage(userId, messageId);
-            }
-        } catch (Exception e) {
-            log.error("Error generating PDF for user {}", userId, e);
-            if (progressMsgId != null) {
-                deleteMessage(userId, progressMsgId);
-            }
-            sendMessage(userId, MSG_PDF_ERROR, createBackToMainKeyboard());
-        }
-    }
-
-    /** Новая вспомогательная клавиатура возврата (не ломает ничего) */
     /** Красивая кнопка возврата с правильным текстом в зависимости от контекста */
     private BotKeyboard createReturnKeyboard(String returnCallbackData) {
         String buttonText = getReturnButtonText(returnCallbackData);

@@ -127,7 +127,15 @@ public class VkBotHandler {
             sendMaintenanceMessage(vkUserId);
             return;
         }
+        BotKeyboard keyboard = buildMainMenuKeyboard(internalUserId);
+        if (messageId != null) {
+            sender.editMenu(vkUserId, messageId, MSG_MAIN_MENU, keyboard);
+        } else {
+            sender.sendMenu(vkUserId, MSG_MAIN_MENU, keyboard);
+        }
+    }
 
+    private BotKeyboard buildMainMenuKeyboard(long internalUserId) {
         BotKeyboard keyboard = new BotKeyboard()
                 .addRow(BotButton.callback(BUTTON_MY_COURSES, CALLBACK_MY_COURSES),
                         BotButton.callback(BUTTON_ALL_COURSES, CALLBACK_ALL_COURSES))
@@ -135,19 +143,13 @@ public class VkBotHandler {
                         BotButton.callback(BUTTON_STATISTICS, CALLBACK_STATISTICS))
                 .addRow(BotButton.callback(BUTTON_MISTAKES, CALLBACK_MY_MISTAKES))
                 .addRow(BotButton.callback("⚙️ Настройки", CALLBACK_SETTINGS));
-
         if (isAdmin(internalUserId)) {
             keyboard.addRow(
                     BotButton.callback("🎓 Adm Курсы", CALLBACK_ADMIN_COURSES_MENU),
                     BotButton.callback("💾 Adm БД", CALLBACK_ADMIN_DB)
             );
         }
-
-        if (messageId != null) {
-            sender.editMenu(vkUserId, messageId, MSG_MAIN_MENU, keyboard);
-        } else {
-            sender.sendMenu(vkUserId, MSG_MAIN_MENU, keyboard);
-        }
+        return keyboard;
     }
 
     // ================== Публичные методы ==================
@@ -262,7 +264,7 @@ public class VkBotHandler {
                     break;
                 case CALLBACK_BACK_TO_COURSES:
                     BotState state = sessionService.getCurrentState(internalUserId);
-                    if (isAdminState(state)) {
+                    if (state.isAdminEditState()) {
                         adminHandler.handleBackToCoursesFromEdit(internalUserId, messageId, vkPageSize);
                     } else {
                         courseNavHandler.handleBackToCourses(internalUserId, messageId, vkPageSize);
@@ -540,16 +542,6 @@ public class VkBotHandler {
                 sendMainMenu(internalUserId, vkUserId, messageId);
                 sessionService.updateSessionState(internalUserId, BotState.MAIN_MENU);
         }
-    }
-
-    private boolean isAdminState(BotState state) {
-        return switch (state) {
-            case EDIT_COURSE_SECTION_CHOOSE, EDIT_SECTION_CHOOSE_TOPIC,
-                 EDIT_COURSE_NAME_DESC, EDIT_SECTION_NAME_DESC,
-                 EDIT_TOPIC_JSON, AWAITING_IMAGE, AWAITING_COURSE_JSON,
-                 AWAITING_SECTION_JSON, AWAITING_BACKUP_FILE -> true;
-            default -> false;
-        };
     }
 
     private boolean isAdmin(long internalUserId) {

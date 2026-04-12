@@ -36,6 +36,7 @@ public class NavigationService {
     private final UserTestResultRepository userTestResultRepository;
     private final UserStudyTimeRepository userStudyTimeRepository;
 
+    /** Максимальная пауза между действиями, засчитываемая как активная учёба (сек). */
     private static final int SESSION_TIMEOUT_SECONDS = 300;
 
     // ================== Время и статистика ==================
@@ -43,20 +44,21 @@ public class NavigationService {
     @Transactional
     public void recordStudyAction(Long userId, Long topicId) {
         Instant now = Instant.now();
-        UserStudyTime studyTime = userStudyTimeRepository.findByUserIdAndTopicId(userId, topicId)
+        UserStudyTime studyTime = userStudyTimeRepository
+                .findByUserIdAndTopicId(userId, topicId)
                 .orElseGet(() -> {
-                    UserStudyTime newTime = new UserStudyTime();
-                    newTime.setUserId(userId);
-                    newTime.setTopic(topicRepository.getReferenceById(topicId));
-                    newTime.setTotalSeconds(0);
-                    newTime.setLastActionAt(now);
-                    return newTime;
+                    UserStudyTime t = new UserStudyTime();
+                    t.setUserId(userId);
+                    t.setTopic(topicRepository.getReferenceById(topicId));
+                    t.setTotalSeconds(0);
+                    t.setLastActionAt(now);
+                    return t;
                 });
 
         if (studyTime.getLastActionAt() != null) {
-            long secondsSinceLast = Duration.between(studyTime.getLastActionAt(), now).getSeconds();
-            if (secondsSinceLast > 0 && secondsSinceLast < SESSION_TIMEOUT_SECONDS) {
-                studyTime.setTotalSeconds(studyTime.getTotalSeconds() + (int) secondsSinceLast);
+            long elapsed = Duration.between(studyTime.getLastActionAt(), now).getSeconds();
+            if (elapsed > 0 && elapsed < SESSION_TIMEOUT_SECONDS) {
+                studyTime.setTotalSeconds(studyTime.getTotalSeconds() + (int) elapsed);
             }
         }
         studyTime.setLastActionAt(now);
@@ -65,7 +67,7 @@ public class NavigationService {
 
     public long getTotalStudySecondsForUser(Long userId) {
         Long sum = userStudyTimeRepository.sumTotalSecondsByUserId(userId);
-        return sum == null ? 0 : sum;
+        return sum != null ? sum : 0L;
     }
 
     public long getStudySecondsForCourse(Long userId, Long courseId) {
@@ -84,7 +86,8 @@ public class NavigationService {
     private List<Long> getAllTopicIdsForCourse(Long courseId) {
         return sectionRepository.findByCourseIdOrderByOrderIndexAsc(courseId).stream()
                 .flatMap(s -> topicRepository.findBySectionIdOrderByOrderIndexAsc(s.getId()).stream())
-                .map(Topic::getId).toList();
+                .map(Topic::getId)
+                .toList();
     }
 
     // ================== Получение сущностей ==================
@@ -131,12 +134,11 @@ public class NavigationService {
 
     @Transactional(readOnly = true)
     public Optional<Question> getQuestionWithImagesAndOptions(Long questionId) {
-        Optional<Question> opt = questionRepository.findById(questionId);
-        opt.ifPresent(q -> {
-            q.getImages().size();
+        return questionRepository.findById(questionId).map(q -> {
+            q.getImages().size();         // инициализируем lazy-коллекции
             q.getAnswerOptions().size();
+            return q;
         });
-        return opt;
     }
 
     public List<AnswerOption> getAnswerOptionsForQuestion(Long questionId) {
@@ -148,25 +150,24 @@ public class NavigationService {
     }
 
     public List<Question> getAllQuestionsForTopic(Long topicId) {
-        List<Block> blocks = blockRepository.findByTopicIdOrderByOrderIndexAsc(topicId);
-        return blocks.stream()
+        return blockRepository.findByTopicIdOrderByOrderIndexAsc(topicId).stream()
                 .flatMap(block -> questionRepository.findByBlockIdOrderByOrderIndexAsc(block.getId()).stream())
                 .toList();
     }
 
-    // ================== Прогресс и статусы (оптимизировано) ==================
+    // ================== Прогресс и статусы ==================
 
+    /** Возвращает последний прогресс по каждому вопросу темы в заданном режиме. */
     private Map<Long, UserProgress> getLatestProgressForTopic(Long userId, Long topicId, String mode) {
-        List<UserProgress> allProgress = userProgressRepository.findByUserIdAndTopicIdAndMode(userId, topicId, mode);
-        Map<Long, UserProgress> latestByQuestion = new HashMap<>();
-        for (UserProgress p : allProgress) {
+        Map<Long, UserProgress> latest = new HashMap<>();
+        for (UserProgress p : userProgressRepository.findByUserIdAndTopicIdAndMode(userId, topicId, mode)) {
             Long qid = p.getQuestion().getId();
-            UserProgress existing = latestByQuestion.get(qid);
+            UserProgress existing = latest.get(qid);
             if (existing == null || p.getCompletedAt().isAfter(existing.getCompletedAt())) {
-                latestByQuestion.put(qid, p);
+                latest.put(qid, p);
             }
         }
-        return latestByQuestion;
+        return latest;
     }
 
     private String getTopicLearningStatus(Long userId, Long topicId) {
@@ -174,10 +175,7 @@ public class NavigationService {
         if (questions.isEmpty()) return EMOJI_NOT_STARTED;
 
         Map<Long, UserProgress> progressMap = getLatestProgressForTopic(userId, topicId, MODE_LEARNING);
-
-        int total = questions.size();
-        int answered = 0;
-        int correct = 0;
+        int answered = 0, correct = 0;
         for (Question q : questions) {
             UserProgress p = progressMap.get(q.getId());
             if (p != null) {
@@ -187,7 +185,7 @@ public class NavigationService {
         }
 
         if (answered == 0) return EMOJI_NOT_STARTED;
-        if (correct == total) return EMOJI_COMPLETED;
+        if (correct == questions.size()) return EMOJI_COMPLETED;
         return EMOJI_IN_PROGRESS;
     }
 
@@ -200,24 +198,18 @@ public class NavigationService {
         if (topics.isEmpty()) return EMOJI_NOT_STARTED;
 
         boolean anyLearning = false;
-        boolean anyNotGreen = false;
         boolean allTopicsGreen = true;
 
         for (Topic topic : topics) {
-            long totalQuestions = questionRepository.countByTopicId(topic.getId());
-            if (totalQuestions == 0) continue;
-
-            String learningStatus = getTopicLearningStatus(userId, topic.getId());
-            if (!learningStatus.equals(EMOJI_NOT_STARTED)) anyLearning = true;
-            if (!learningStatus.equals(EMOJI_COMPLETED)) allTopicsGreen = false;
-            if (!learningStatus.equals(EMOJI_COMPLETED) && !learningStatus.equals(EMOJI_NOT_STARTED))
-                anyNotGreen = true;
+            if (questionRepository.countByTopicId(topic.getId()) == 0) continue;
+            String status = getTopicLearningStatus(userId, topic.getId());
+            if (!EMOJI_NOT_STARTED.equals(status)) anyLearning = true;
+            if (!EMOJI_COMPLETED.equals(status)) allTopicsGreen = false;
         }
 
         String testStatus = getSectionTestStatus(userId, sectionId);
-
-        if (!anyLearning && testStatus.equals(EMOJI_NOT_STARTED)) return EMOJI_NOT_STARTED;
-        if (allTopicsGreen && testStatus.equals(EMOJI_COMPLETED)) return EMOJI_COMPLETED;
+        if (!anyLearning && EMOJI_NOT_STARTED.equals(testStatus)) return EMOJI_NOT_STARTED;
+        if (allTopicsGreen && EMOJI_COMPLETED.equals(testStatus)) return EMOJI_COMPLETED;
         return EMOJI_IN_PROGRESS;
     }
 
@@ -226,37 +218,33 @@ public class NavigationService {
         if (sections.isEmpty()) return EMOJI_NOT_STARTED;
 
         boolean anyLearning = false;
-        boolean anyNotGreen = false;
         boolean allSectionsGreen = true;
 
         for (Section section : sections) {
-            List<Topic> topics = topicRepository.findBySectionIdOrderByOrderIndexAsc(section.getId());
-            boolean sectionHasQuestions = topics.stream()
-                    .anyMatch(t -> questionRepository.countByTopicId(t.getId()) > 0);
-            if (!sectionHasQuestions) continue;
+            boolean hasQuestions = topicRepository.findBySectionIdOrderByOrderIndexAsc(section.getId())
+                    .stream().anyMatch(t -> questionRepository.countByTopicId(t.getId()) > 0);
+            if (!hasQuestions) continue;
 
-            String sectionStatus = getSectionStatusEmoji(userId, section.getId());
-            if (!sectionStatus.equals(EMOJI_NOT_STARTED)) anyLearning = true;
-            if (!sectionStatus.equals(EMOJI_COMPLETED)) allSectionsGreen = false;
-            if (!sectionStatus.equals(EMOJI_COMPLETED) && !sectionStatus.equals(EMOJI_NOT_STARTED)) anyNotGreen = true;
+            String status = getSectionStatusEmoji(userId, section.getId());
+            if (!EMOJI_NOT_STARTED.equals(status)) anyLearning = true;
+            if (!EMOJI_COMPLETED.equals(status)) allSectionsGreen = false;
         }
 
         String courseTestStatus = getCourseTestStatus(userId, courseId);
-
-        if (!anyLearning && courseTestStatus.equals(EMOJI_NOT_STARTED)) return EMOJI_NOT_STARTED;
-        if (allSectionsGreen && courseTestStatus.equals(EMOJI_COMPLETED)) return EMOJI_COMPLETED;
+        if (!anyLearning && EMOJI_NOT_STARTED.equals(courseTestStatus)) return EMOJI_NOT_STARTED;
+        if (allSectionsGreen && EMOJI_COMPLETED.equals(courseTestStatus)) return EMOJI_COMPLETED;
         return EMOJI_IN_PROGRESS;
     }
 
     private String computeTestStatusEmoji(Optional<UserTestResult> resultOpt) {
-        if (resultOpt.isEmpty()) return EMOJI_NOT_STARTED;
-        UserTestResult r = resultOpt.get();
-        int total = r.getCorrectCount() + r.getWrongCount();
-        if (total == 0) return EMOJI_NOT_STARTED;
-        double percent = (double) r.getCorrectCount() / total;
-        if (percent >= 1.0) return EMOJI_COMPLETED;
-        if (percent >= 0.5) return EMOJI_IN_PROGRESS;
-        return EMOJI_FAILED;
+        return resultOpt.map(r -> {
+            int total = r.getCorrectCount() + r.getWrongCount();
+            if (total == 0) return EMOJI_NOT_STARTED;
+            double percent = (double) r.getCorrectCount() / total;
+            if (percent >= 1.0) return EMOJI_COMPLETED;
+            if (percent >= 0.5) return EMOJI_IN_PROGRESS;
+            return EMOJI_FAILED;
+        }).orElse(EMOJI_NOT_STARTED);
     }
 
     public String getTopicTestStatus(Long userId, Long topicId) {
@@ -281,14 +269,13 @@ public class NavigationService {
     }
 
     public long getCompletedCoursesCount(Long userId) {
-        List<Long> courseIds = userProgressRepository.findDistinctCourseIdsWithProgressByUserId(userId);
-        long completed = 0;
-        for (Long courseId : courseIds) {
-            long totalQuestions = courseRepository.countQuestionsByCourseId(courseId);
-            long answeredQuestions = userProgressRepository.countDistinctAnsweredQuestionsByUserAndCourse(userId, courseId);
-            if (totalQuestions > 0 && answeredQuestions >= totalQuestions) completed++;
-        }
-        return completed;
+        return userProgressRepository.findDistinctCourseIdsWithProgressByUserId(userId).stream()
+                .filter(courseId -> {
+                    long total = courseRepository.countQuestionsByCourseId(courseId);
+                    long answered = userProgressRepository.countDistinctAnsweredQuestionsByUserAndCourse(userId, courseId);
+                    return total > 0 && answered >= total;
+                })
+                .count();
     }
 
     public String getHardestCourse(Long userId) {
@@ -298,7 +285,6 @@ public class NavigationService {
         Object[] hardest = null;
         double maxErrorRate = -1.0;
         for (Object[] row : stats) {
-            String title = (String) row[1];
             long totalAnswers = (Long) row[2];
             long wrongAnswers = (Long) row[3];
             double errorRate = (double) wrongAnswers / totalAnswers;
@@ -309,9 +295,7 @@ public class NavigationService {
         }
 
         if (hardest == null) return MSG_NO_DATA;
-        String courseTitle = (String) hardest[1];
-        int percent = (int) Math.round(maxErrorRate * 100);
-        return String.format("%s (%d%% ошибок)", courseTitle, percent);
+        return String.format("%s (%d%% ошибок)", hardest[1], (int) Math.round(maxErrorRate * 100));
     }
 
     public List<String> getCoursesProgress(Long userId) {
@@ -319,18 +303,20 @@ public class NavigationService {
         if (courses.isEmpty()) return Collections.emptyList();
 
         List<Long> courseIds = courses.stream().map(Course::getId).toList();
-        Map<Long, Long> totalQuestionsMap = courseRepository.countQuestionsByCourseIds(courseIds);
-        Map<Long, Long> answeredMap = userProgressRepository.countDistinctAnsweredQuestionsByUserAndCourses(userId, courseIds)
+        Map<Long, Long> totalMap = courseRepository.countQuestionsByCourseIds(courseIds);
+        Map<Long, Long> answeredMap = userProgressRepository
+                .countDistinctAnsweredQuestionsByUserAndCourses(userId, courseIds)
                 .stream().collect(Collectors.toMap(arr -> (Long) arr[0], arr -> (Long) arr[1]));
 
         List<String> result = new ArrayList<>();
         for (Course course : courses) {
-            Long total = totalQuestionsMap.getOrDefault(course.getId(), 0L);
+            long total = totalMap.getOrDefault(course.getId(), 0L);
             if (total == 0) continue;
-            Long answered = answeredMap.getOrDefault(course.getId(), 0L);
+            long answered = answeredMap.getOrDefault(course.getId(), 0L);
             int percent = (int) Math.round(answered * 100.0 / total);
-            String statusEmoji = answered == 0 ? EMOJI_NOT_STARTED : (answered < total ? EMOJI_IN_PROGRESS : EMOJI_COMPLETED);
-            result.add(String.format(FORMAT_COURSE_PROGRESS, statusEmoji, course.getTitle(), percent, answered, total));
+            String emoji = answered == 0 ? EMOJI_NOT_STARTED
+                    : (answered < total ? EMOJI_IN_PROGRESS : EMOJI_COMPLETED);
+            result.add(String.format(FORMAT_COURSE_PROGRESS, emoji, course.getTitle(), percent, answered, total));
         }
         return result;
     }
@@ -339,58 +325,39 @@ public class NavigationService {
 
     public PaginationResult<Course> getMyCoursesPage(Long userId, int page, int pageSize) {
         Pageable pageable = PageRequest.of(page, pageSize);
-        Page<Course> coursePage = userProgressRepository.findCoursesWithProgressOrderByLastAccessed(userId, pageable);
-        return new PaginationResult<>(
-                coursePage.getContent(), coursePage.getNumber(), coursePage.getTotalPages(),
-                coursePage.getTotalElements(), coursePage.hasPrevious(), coursePage.hasNext());
+        Page<Course> p = userProgressRepository.findCoursesWithProgressOrderByLastAccessed(userId, pageable);
+        return PaginationResult.of(p);
     }
 
     public PaginationResult<Course> getAllCoursesPage(int page, int pageSize) {
         Pageable pageable = PageRequest.of(page, pageSize, Sort.by("title").ascending());
-        Page<Course> coursePage = courseRepository.findAll(pageable);
-        return new PaginationResult<>(
-                coursePage.getContent(), coursePage.getNumber(), coursePage.getTotalPages(),
-                coursePage.getTotalElements(), coursePage.hasPrevious(), coursePage.hasNext());
+        Page<Course> p = courseRepository.findAll(pageable);
+        return PaginationResult.of(p);
     }
 
     public PaginationResult<Course> getFoundCoursesPage(String query, int page, int pageSize) {
         String fullTextQuery = prepareFullTextQuery(query);
         if (fullTextQuery.isEmpty()) {
-            return new PaginationResult<>(Collections.emptyList(), page, 0, 0, false, false);
+            return PaginationResult.empty(page);
         }
         Pageable pageable = PageRequest.of(page, pageSize);
-        Page<Course> coursePage = courseRepository.searchByFullText(fullTextQuery, pageable);
-        return new PaginationResult<>(
-                coursePage.getContent(), coursePage.getNumber(), coursePage.getTotalPages(),
-                coursePage.getTotalElements(), coursePage.hasPrevious(), coursePage.hasNext());
+        Page<Course> p = courseRepository.searchByFullText(fullTextQuery, pageable);
+        return PaginationResult.of(p);
     }
 
     public PaginationResult<Section> getSectionsPage(Long courseId, int page, int pageSize) {
         Pageable pageable = PageRequest.of(page, pageSize, Sort.by("orderIndex").ascending());
-        Page<Section> sectionPage = sectionRepository.findByCourseId(courseId, pageable);
-        return new PaginationResult<>(
-                sectionPage.getContent(), sectionPage.getNumber(), sectionPage.getTotalPages(),
-                sectionPage.getTotalElements(), sectionPage.hasPrevious(), sectionPage.hasNext());
+        Page<Section> p = sectionRepository.findByCourseId(courseId, pageable);
+        return PaginationResult.of(p);
     }
 
     public PaginationResult<Topic> getTopicsPage(Long sectionId, int page, int pageSize) {
         Pageable pageable = PageRequest.of(page, pageSize, Sort.by("orderIndex").ascending());
-        Page<Topic> topicPage = topicRepository.findBySectionId(sectionId, pageable);
-        return new PaginationResult<>(
-                topicPage.getContent(), topicPage.getNumber(), topicPage.getTotalPages(),
-                topicPage.getTotalElements(), topicPage.hasPrevious(), topicPage.hasNext());
+        Page<Topic> p = topicRepository.findBySectionId(sectionId, pageable);
+        return PaginationResult.of(p);
     }
 
     // ================== Последние посещения ==================
-
-    public String getLastAccessedTime(Long userId, Long courseId) {
-        return userProgressRepository
-                .findByUserIdAndCourseIdAndBlockIsNullAndQuestionIsNullOrderByLastAccessedAtDesc(userId, courseId)
-                .stream().findFirst()
-                .map(UserProgress::getLastAccessedAt)
-                .map(this::formatRelativeTime)
-                .orElse("");
-    }
 
     public Instant getCourseLastAccessed(Long userId, Long courseId) {
         return userProgressRepository
@@ -400,23 +367,14 @@ public class NavigationService {
                 .orElse(null);
     }
 
+    /** Обновляет время последнего посещения курса (создаёт запись при необходимости). */
     @Transactional
     public void updateCourseLastAccessed(Long userId, Long courseId) {
         if (courseId == null || !courseRepository.existsById(courseId)) return;
-        List<UserProgress> progressList = userProgressRepository
-                .findByUserIdAndCourseIdAndBlockIsNullAndQuestionIsNullOrderByLastAccessedAtDesc(userId, courseId);
-        UserProgress progress = progressList.isEmpty() ? null : progressList.get(0);
-        if (progress == null) {
-            progress = new UserProgress();
-            progress.setUserId(userId);
-            progress.setCourse(courseRepository.getReferenceById(courseId));
-            progress.setIsPassed(false);
-            progress.setMode(MODE_LEARNING);
-        }
-        progress.setLastAccessedAt(Instant.now());
-        userProgressRepository.save(progress);
+        upsertCourseLastAccessed(userId, courseId);
     }
 
+    /** Псевдоним для {@link #updateCourseLastAccessed} — оставлен для совместимости с уже зафиксированными вызовами. */
     @Transactional
     public void updateCourseLastAccessedOnExit(Long userId, Long courseId) {
         if (courseId == null) return;
@@ -424,34 +382,41 @@ public class NavigationService {
             log.warn("Course {} does not exist, skipping last accessed update", courseId);
             return;
         }
-        List<UserProgress> progressList = userProgressRepository
+        upsertCourseLastAccessed(userId, courseId);
+    }
+
+    private void upsertCourseLastAccessed(Long userId, Long courseId) {
+        List<UserProgress> list = userProgressRepository
                 .findByUserIdAndCourseIdAndBlockIsNullAndQuestionIsNullOrderByLastAccessedAtDesc(userId, courseId);
-        UserProgress progress = progressList.isEmpty() ? null : progressList.get(0);
-        if (progress == null) {
-            progress = new UserProgress();
-            progress.setUserId(userId);
-            progress.setCourse(courseRepository.getReferenceById(courseId));
-            progress.setIsPassed(false);
-            progress.setMode(MODE_LEARNING);
-        }
+        UserProgress progress = list.isEmpty() ? buildCourseProgress(userId, courseId) : list.get(0);
         progress.setLastAccessedAt(Instant.now());
         userProgressRepository.save(progress);
+    }
+
+    private UserProgress buildCourseProgress(Long userId, Long courseId) {
+        UserProgress p = new UserProgress();
+        p.setUserId(userId);
+        p.setCourse(courseRepository.getReferenceById(courseId));
+        p.setIsPassed(false);
+        p.setMode(MODE_LEARNING);
+        return p;
     }
 
     @Transactional
     public void updateSectionLastAccessed(Long userId, Long sectionId) {
         Section section = sectionRepository.findById(sectionId)
-                .orElseThrow(() -> new RuntimeException("Section not found"));
+                .orElseThrow(() -> new RuntimeException("Section not found: " + sectionId));
         UserProgress progress = userProgressRepository
                 .findByUserIdAndSection(userId, section)
-                .orElse(new UserProgress());
-        if (progress.getId() == null) {
-            progress.setUserId(userId);
-            progress.setSection(section);
-            progress.setCourse(section.getCourse());
-            progress.setIsPassed(false);
-            progress.setMode(MODE_LEARNING);
-        }
+                .orElseGet(() -> {
+                    UserProgress p = new UserProgress();
+                    p.setUserId(userId);
+                    p.setSection(section);
+                    p.setCourse(section.getCourse());
+                    p.setIsPassed(false);
+                    p.setMode(MODE_LEARNING);
+                    return p;
+                });
         progress.setLastAccessedAt(Instant.now());
         userProgressRepository.save(progress);
     }
@@ -471,13 +436,13 @@ public class NavigationService {
         UserProgress progress = userProgressRepository
                 .findByUserIdAndSection(userId, section)
                 .orElseGet(() -> {
-                    UserProgress newProgress = new UserProgress();
-                    newProgress.setUserId(userId);
-                    newProgress.setSection(section);
-                    newProgress.setCourse(section.getCourse());
-                    newProgress.setIsPassed(false);
-                    newProgress.setMode(MODE_LEARNING);
-                    return newProgress;
+                    UserProgress p = new UserProgress();
+                    p.setUserId(userId);
+                    p.setSection(section);
+                    p.setCourse(section.getCourse());
+                    p.setIsPassed(false);
+                    p.setMode(MODE_LEARNING);
+                    return p;
                 });
         progress.setLastAccessedAt(Instant.now());
         userProgressRepository.save(progress);
@@ -488,7 +453,7 @@ public class NavigationService {
     @Transactional
     public void saveAnswerProgress(Long userId, Long questionId, boolean correct, boolean isLearning) {
         Question question = questionRepository.findById(questionId)
-                .orElseThrow(() -> new RuntimeException("Question not found"));
+                .orElseThrow(() -> new RuntimeException("Question not found: " + questionId));
         UserProgress progress = new UserProgress();
         progress.setUserId(userId);
         progress.setCourse(question.getBlock().getTopic().getSection().getCourse());
@@ -498,7 +463,7 @@ public class NavigationService {
         progress.setCompletedAt(Instant.now());
         progress.setMode(isLearning ? MODE_LEARNING : MODE_TEST);
         userProgressRepository.save(progress);
-        updateCourseLastAccessed(userId, progress.getCourse().getId());
+        upsertCourseLastAccessed(userId, progress.getCourse().getId());
     }
 
     @Transactional
@@ -524,14 +489,12 @@ public class NavigationService {
 
     public List<Question> getRandomQuestionsForSection(Long sectionId, int questionsPerBlock) {
         List<Question> result = new ArrayList<>();
-        List<Topic> topics = topicRepository.findBySectionIdOrderByOrderIndexAsc(sectionId);
-        for (Topic topic : topics) {
-            List<Block> blocks = blockRepository.findByTopicIdOrderByOrderIndexAsc(topic.getId());
-            for (Block block : blocks) {
-                List<Question> blockQuestions = new ArrayList<>(questionRepository.findByBlockIdOrderByOrderIndexAsc(block.getId()));
-                if (!blockQuestions.isEmpty()) {
-                    Collections.shuffle(blockQuestions);
-                    result.addAll(blockQuestions.stream().limit(questionsPerBlock).toList());
+        for (Topic topic : topicRepository.findBySectionIdOrderByOrderIndexAsc(sectionId)) {
+            for (Block block : blockRepository.findByTopicIdOrderByOrderIndexAsc(topic.getId())) {
+                List<Question> qs = new ArrayList<>(questionRepository.findByBlockIdOrderByOrderIndexAsc(block.getId()));
+                if (!qs.isEmpty()) {
+                    Collections.shuffle(qs);
+                    result.addAll(qs.stream().limit(questionsPerBlock).toList());
                 }
             }
         }
@@ -540,14 +503,12 @@ public class NavigationService {
 
     public List<Question> getRandomQuestionsForCourse(Long courseId, int questionsPerTopic) {
         List<Question> result = new ArrayList<>();
-        List<Section> sections = sectionRepository.findByCourseIdOrderByOrderIndexAsc(courseId);
-        for (Section section : sections) {
-            List<Topic> topics = topicRepository.findBySectionIdOrderByOrderIndexAsc(section.getId());
-            for (Topic topic : topics) {
-                List<Question> topicQuestions = new ArrayList<>(getAllQuestionsForTopic(topic.getId()));
-                if (!topicQuestions.isEmpty()) {
-                    Collections.shuffle(topicQuestions);
-                    result.addAll(topicQuestions.stream().limit(questionsPerTopic).toList());
+        for (Section section : sectionRepository.findByCourseIdOrderByOrderIndexAsc(courseId)) {
+            for (Topic topic : topicRepository.findBySectionIdOrderByOrderIndexAsc(section.getId())) {
+                List<Question> qs = new ArrayList<>(getAllQuestionsForTopic(topic.getId()));
+                if (!qs.isEmpty()) {
+                    Collections.shuffle(qs);
+                    result.addAll(qs.stream().limit(questionsPerTopic).toList());
                 }
             }
         }
@@ -567,57 +528,34 @@ public class NavigationService {
         userTestResultRepository.save(result);
     }
 
-    // ================== Вспомогательные ==================
-
-    private String prepareFullTextQuery(String userInput) {
-        if (userInput == null || userInput.trim().isEmpty()) return "";
-        String cleaned = userInput.replaceAll("[^\\p{L}\\p{N}\\s]+", "").trim();
-        if (cleaned.isEmpty()) return "";
-        String[] words = cleaned.split("\\s+");
-        return String.join(" & ", words);
-    }
-
-    private String formatRelativeTime(Instant instant) {
-        if (instant == null) return "";
-        Duration duration = Duration.between(instant, Instant.now());
-        long seconds = duration.getSeconds();
-        if (seconds < 0) return "";
-        if (seconds < 60) return TIME_JUST_NOW;
-        long minutes = seconds / 60;
-        if (minutes < 60) return minutes + TIME_MINUTES_AGO;
-        long hours = minutes / 60;
-        if (hours < 24) return hours + TIME_HOURS_AGO;
-        long days = hours / 24;
-        if (days < 7) return days + TIME_DAYS_AGO;
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd.MM.yyyy").withZone(ZoneId.systemDefault());
-        return formatter.format(instant);
-    }
-
-    // ================== Маппинг статусов для списков ==================
+    // ================== Статусы для списков (batch) ==================
 
     public Map<Long, String> getCourseStatusesForUser(Long userId, List<Long> courseIds) {
         if (courseIds.isEmpty()) return Collections.emptyMap();
-        Map<Long, Long> totalQuestionsMap = courseRepository.countQuestionsByCourseIds(courseIds);
-        Map<Long, Long> answeredMap = userProgressRepository.countDistinctAnsweredQuestionsByUserAndCourses(userId, courseIds)
+
+        Map<Long, Long> totalMap = courseRepository.countQuestionsByCourseIds(courseIds);
+        Map<Long, Long> answeredMap = userProgressRepository
+                .countDistinctAnsweredQuestionsByUserAndCourses(userId, courseIds)
                 .stream().collect(Collectors.toMap(arr -> (Long) arr[0], arr -> (Long) arr[1]));
-        Map<Long, Long> correctMap = userProgressRepository.countCorrectLearningAnswersByUserAndCourses(userId, courseIds)
+        Map<Long, Long> correctMap = userProgressRepository
+                .countCorrectLearningAnswersByUserAndCourses(userId, courseIds)
                 .stream().collect(Collectors.toMap(arr -> (Long) arr[0], arr -> (Long) arr[1]));
         Map<Long, String> testStatusMap = getCourseTestStatusesForUser(userId, courseIds);
 
         Map<Long, String> result = new HashMap<>();
         for (Long courseId : courseIds) {
-            Long total = totalQuestionsMap.getOrDefault(courseId, 0L);
+            long total = totalMap.getOrDefault(courseId, 0L);
             if (total == 0) {
                 result.put(courseId, EMOJI_NOT_STARTED);
                 continue;
             }
-            Long answered = answeredMap.getOrDefault(courseId, 0L);
-            Long correct = correctMap.getOrDefault(courseId, 0L);
+            long answered = answeredMap.getOrDefault(courseId, 0L);
+            long correct = correctMap.getOrDefault(courseId, 0L);
             String testStatus = testStatusMap.getOrDefault(courseId, EMOJI_NOT_STARTED);
 
-            if (answered == 0 && testStatus.equals(EMOJI_NOT_STARTED)) {
+            if (answered == 0 && EMOJI_NOT_STARTED.equals(testStatus)) {
                 result.put(courseId, EMOJI_NOT_STARTED);
-            } else if (answered.equals(total) && correct.equals(total) && testStatus.equals(EMOJI_COMPLETED)) {
+            } else if (answered == total && correct == total && EMOJI_COMPLETED.equals(testStatus)) {
                 result.put(courseId, EMOJI_COMPLETED);
             } else {
                 result.put(courseId, EMOJI_IN_PROGRESS);
@@ -628,9 +566,9 @@ public class NavigationService {
 
     public Map<Long, String> getCourseTestStatusesForUser(Long userId, List<Long> courseIds) {
         if (courseIds.isEmpty()) return Collections.emptyMap();
-        List<Object[]> results = userTestResultRepository.findTestResultsByUserAndTestIds(userId, TEST_TYPE_COURSE, courseIds);
+
         Map<Long, String> map = new HashMap<>();
-        for (Object[] row : results) {
+        for (Object[] row : userTestResultRepository.findTestResultsByUserAndTestIds(userId, TEST_TYPE_COURSE, courseIds)) {
             Long courseId = (Long) row[0];
             int correct = ((Number) row[1]).intValue();
             int wrong = ((Number) row[2]).intValue();
@@ -644,28 +582,22 @@ public class NavigationService {
         return map;
     }
 
-    // ================== Дополнительные методы (для совместимости) ==================
+    // ================== Дополнительные методы совместимости ==================
 
     public Optional<Block> getNextBlock(Long currentBlockId, Long topicId) {
         Block current = blockRepository.findById(currentBlockId).orElse(null);
         if (current == null) return Optional.empty();
         List<Block> blocks = blockRepository.findByTopicIdOrderByOrderIndexAsc(topicId);
-        int currentIndex = blocks.indexOf(current);
-        if (currentIndex >= 0 && currentIndex < blocks.size() - 1) {
-            return Optional.of(blocks.get(currentIndex + 1));
-        }
-        return Optional.empty();
+        int idx = blocks.indexOf(current);
+        return (idx >= 0 && idx < blocks.size() - 1) ? Optional.of(blocks.get(idx + 1)) : Optional.empty();
     }
 
     public Optional<Block> getPrevBlock(Long currentBlockId, Long topicId) {
         Block current = blockRepository.findById(currentBlockId).orElse(null);
         if (current == null) return Optional.empty();
         List<Block> blocks = blockRepository.findByTopicIdOrderByOrderIndexAsc(topicId);
-        int currentIndex = blocks.indexOf(current);
-        if (currentIndex > 0) {
-            return Optional.of(blocks.get(currentIndex - 1));
-        }
-        return Optional.empty();
+        int idx = blocks.indexOf(current);
+        return (idx > 0) ? Optional.of(blocks.get(idx - 1)) : Optional.empty();
     }
 
     public Optional<Section> getSection(Long sectionId) {
@@ -677,20 +609,9 @@ public class NavigationService {
     }
 
     // ================== Методы для генерации PDF ==================
-    //
-    // Hibernate запрещает JOIN FETCH сразу нескольких коллекций типа List (Bag) в одном запросе
-    // (MultipleBagFetchException). Поэтому загрузка ведётся поэтапно:
-    //   1. Загружаем верхний уровень с одной коллекцией через FETCH JOIN.
-    //   2. Загружаем следующий уровень пакетным запросом по собранным ID.
-    // Всё выполняется в одной транзакции (@Transactional), так что сессия Hibernate
-    // остаётся открытой и LazyInitializationException не возникает.
 
-    /**
-     * Загружает курс со всем содержимым (разделы → темы → блоки) для генерации PDF.
-     */
     @Transactional(readOnly = true)
     public Optional<Course> getCourseWithContent(Long courseId) {
-        // 1. Курс + разделы
         Optional<Course> courseOpt = courseRepository.findByIdWithSections(courseId);
         if (courseOpt.isEmpty()) return Optional.empty();
 
@@ -701,10 +622,9 @@ public class NavigationService {
                 .toList();
 
         if (!topicIds.isEmpty()) {
-            // 2. Темы + блоки
-            List<Topic> topicsWithBlocks = topicRepository.findByIdsWithBlocks(topicIds);
-            Map<Long, Topic> topicMap = topicsWithBlocks.stream()
+            Map<Long, Topic> topicMap = topicRepository.findByIdsWithBlocks(topicIds).stream()
                     .collect(Collectors.toMap(Topic::getId, t -> t));
+
             for (Section section : course.getSections()) {
                 List<Topic> hydrated = section.getTopics().stream()
                         .map(t -> topicMap.getOrDefault(t.getId(), t))
@@ -713,34 +633,15 @@ public class NavigationService {
                 section.getTopics().addAll(hydrated);
             }
 
-            // 3. Загружаем все блоки, а затем вопросы с вариантами
-            List<Long> blockIds = topicsWithBlocks.stream()
+            List<Long> blockIds = topicMap.values().stream()
                     .flatMap(t -> t.getBlocks().stream())
                     .map(Block::getId)
                     .toList();
-
-            if (!blockIds.isEmpty()) {
-                // Вопросы с вариантами ответов для всех блоков
-                List<Question> allQuestions = questionRepository.findAllByBlockIdWithOptions(blockIds);
-                Map<Long, List<Question>> questionsByBlock = allQuestions.stream()
-                        .collect(Collectors.groupingBy(q -> q.getBlock().getId()));
-
-                // Присваиваем вопросы соответствующим блокам
-                for (Topic topic : topicsWithBlocks) {
-                    for (Block block : topic.getBlocks()) {
-                        List<Question> blockQuestions = questionsByBlock.getOrDefault(block.getId(), List.of());
-                        block.getQuestions().clear();
-                        block.getQuestions().addAll(blockQuestions);
-                    }
-                }
-            }
+            hydrateBlockQuestions(topicMap.values(), blockIds);
         }
         return Optional.of(course);
     }
 
-    /**
-     * Загружает раздел со всем содержимым (темы → блоки) для генерации PDF.
-     */
     @Transactional(readOnly = true)
     public Optional<Section> getSectionWithContent(Long sectionId) {
         Optional<Section> sectionOpt = sectionRepository.findByIdWithTopics(sectionId);
@@ -748,59 +649,73 @@ public class NavigationService {
 
         Section section = sectionOpt.get();
         List<Long> topicIds = section.getTopics().stream().map(Topic::getId).toList();
+        if (topicIds.isEmpty()) return Optional.of(section);
 
-        if (!topicIds.isEmpty()) {
-            List<Topic> topicsWithBlocks = topicRepository.findByIdsWithBlocks(topicIds);
-            Map<Long, Topic> topicMap = topicsWithBlocks.stream()
-                    .collect(Collectors.toMap(Topic::getId, t -> t));
-            List<Topic> hydrated = section.getTopics().stream()
-                    .map(t -> topicMap.getOrDefault(t.getId(), t))
-                    .toList();
-            section.getTopics().clear();
-            section.getTopics().addAll(hydrated);
+        Map<Long, Topic> topicMap = topicRepository.findByIdsWithBlocks(topicIds).stream()
+                .collect(Collectors.toMap(Topic::getId, t -> t));
+        List<Topic> hydrated = section.getTopics().stream()
+                .map(t -> topicMap.getOrDefault(t.getId(), t)).toList();
+        section.getTopics().clear();
+        section.getTopics().addAll(hydrated);
 
-            // Загрузка вопросов с вариантами для всех блоков
-            List<Long> blockIds = topicsWithBlocks.stream()
-                    .flatMap(t -> t.getBlocks().stream())
-                    .map(Block::getId)
-                    .toList();
-            if (!blockIds.isEmpty()) {
-                List<Question> allQuestions = questionRepository.findAllByBlockIdWithOptions(blockIds);
-                Map<Long, List<Question>> questionsByBlock = allQuestions.stream()
-                        .collect(Collectors.groupingBy(q -> q.getBlock().getId()));
-                for (Topic topic : topicsWithBlocks) {
-                    for (Block block : topic.getBlocks()) {
-                        List<Question> blockQuestions = questionsByBlock.getOrDefault(block.getId(), List.of());
-                        block.getQuestions().clear();
-                        block.getQuestions().addAll(blockQuestions);
-                    }
-                }
-            }
-        }
+        List<Long> blockIds = topicMap.values().stream()
+                .flatMap(t -> t.getBlocks().stream()).map(Block::getId).toList();
+        hydrateBlockQuestions(topicMap.values(), blockIds);
         return Optional.of(section);
     }
 
-    /**
-     * Загружает тему со всеми блоками для генерации PDF.
-     */
     @Transactional(readOnly = true)
     public Optional<Topic> getTopicWithBlocks(Long topicId) {
         Optional<Topic> topicOpt = topicRepository.findByIdWithBlocks(topicId);
         if (topicOpt.isEmpty()) return Optional.empty();
 
         Topic topic = topicOpt.get();
-        // Загружаем вопросы с вариантами для всех блоков темы
         List<Long> blockIds = topic.getBlocks().stream().map(Block::getId).toList();
-        if (!blockIds.isEmpty()) {
-            List<Question> allQuestions = questionRepository.findAllByBlockIdWithOptions(blockIds);
-            Map<Long, List<Question>> questionsByBlock = allQuestions.stream()
-                    .collect(Collectors.groupingBy(q -> q.getBlock().getId()));
+        hydrateBlockQuestions(List.of(topic), blockIds);
+        return Optional.of(topic);
+    }
+
+    /** Загружает вопросы с вариантами для указанных блоков и присваивает их. */
+    private void hydrateBlockQuestions(Iterable<Topic> topics, List<Long> blockIds) {
+        if (blockIds.isEmpty()) return;
+        Map<Long, List<Question>> questionsByBlock = questionRepository.findAllByBlockIdWithOptions(blockIds)
+                .stream().collect(Collectors.groupingBy(q -> q.getBlock().getId()));
+
+        for (Topic topic : topics) {
             for (Block block : topic.getBlocks()) {
-                List<Question> blockQuestions = questionsByBlock.getOrDefault(block.getId(), List.of());
+                List<Question> qs = questionsByBlock.getOrDefault(block.getId(), List.of());
                 block.getQuestions().clear();
-                block.getQuestions().addAll(blockQuestions);
+                block.getQuestions().addAll(qs);
             }
         }
-        return Optional.of(topic);
+    }
+
+    // ================== Вспомогательные методы ==================
+
+    private String prepareFullTextQuery(String userInput) {
+        if (userInput == null || userInput.isBlank()) return "";
+        String cleaned = userInput.replaceAll("[^\\p{L}\\p{N}\\s]+", "").trim();
+        if (cleaned.isEmpty()) return "";
+        return String.join(" & ", cleaned.split("\\s+"));
+    }
+
+    private String formatRelativeTime(Instant instant) {
+        if (instant == null) return "";
+        long seconds = Duration.between(instant, Instant.now()).getSeconds();
+        if (seconds < 0) return "";
+        if (seconds < 60) return TIME_JUST_NOW;
+        long minutes = seconds / 60;
+        if (minutes < 60) return minutes + TIME_MINUTES_AGO;
+        long hours = minutes / 60;
+        if (hours < 24) return hours + TIME_HOURS_AGO;
+        long days = hours / 24;
+        if (days < 7) return days + TIME_DAYS_AGO;
+        return DateTimeFormatter.ofPattern("dd.MM.yyyy").withZone(ZoneId.systemDefault()).format(instant);
+    }
+
+    // Unused — kept for future use
+    public String getLastAccessedTime(Long userId, Long courseId) {
+        return getCourseLastAccessed(userId, courseId) != null
+                ? formatRelativeTime(getCourseLastAccessed(userId, courseId)) : "";
     }
 }

@@ -13,7 +13,7 @@ public enum BotState {
     BLOCK_CONTENT,
     QUESTION,
     TEST_RESULT,
-    // административные
+    // Административные состояния
     ADMIN_MENU,
     AWAITING_COURSE_JSON,
     AWAITING_IMAGE,
@@ -30,6 +30,25 @@ public enum BotState {
     AWAITING_IMAGES,
     AWAITING_LINK_CODE,
     AWAITING_PAGE_SIZE_INPUT,
-    AWAITING_SECTION_JSON,// ожидание ввода числа для размера страницы
-    AWAITING_BACKUP_FILE   // ожидание загрузки файла резервной копии от администратора
+    AWAITING_SECTION_JSON,
+    AWAITING_BACKUP_FILE;
+
+    /**
+     * Возвращает {@code true}, если состояние относится к потоку администрирования курсов.
+     * Используется в диспетчерах Telegram и VK для корректной маршрутизации кнопки «Назад».
+     */
+    public boolean isAdminEditState() {
+        return switch (this) {
+            case EDIT_COURSE_SECTION_CHOOSE,
+                 EDIT_SECTION_CHOOSE_TOPIC,
+                 EDIT_COURSE_NAME_DESC,
+                 EDIT_SECTION_NAME_DESC,
+                 EDIT_TOPIC_JSON,
+                 AWAITING_IMAGE,
+                 AWAITING_COURSE_JSON,
+                 AWAITING_SECTION_JSON,
+                 AWAITING_BACKUP_FILE -> true;
+            default -> false;
+        };
+    }
 }

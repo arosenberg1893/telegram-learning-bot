@@ -303,7 +303,7 @@ public class CourseImportService {
             if (originalFileName.contains(".")) {
                 ext = originalFileName.substring(originalFileName.lastIndexOf('.'));
             }
-            String fileName = UUID.randomUUID().toString() + ext;
+            String fileName = UUID.randomUUID() + ext;
             Path targetPath = topicDir.resolve(fileName);
             Files.write(targetPath, data);
             return targetPath.toAbsolutePath().toString();
