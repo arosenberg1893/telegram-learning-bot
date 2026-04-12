@@ -6,11 +6,11 @@ import com.lbt.telegram_learning_bot.bot.UserContext;
 import com.lbt.telegram_learning_bot.bot.handler.*;
 import com.lbt.telegram_learning_bot.platform.BotButton;
 import com.lbt.telegram_learning_bot.platform.BotKeyboard;
-import com.lbt.telegram_learning_bot.platform.MessageSender;
 import com.lbt.telegram_learning_bot.platform.Platform;
 import com.lbt.telegram_learning_bot.repository.*;
 import com.lbt.telegram_learning_bot.repository.UserStudyTimeRepository;
 import com.lbt.telegram_learning_bot.service.*;
+import com.lbt.telegram_learning_bot.service.cloud.CloudStorageFacade;
 import com.pengrad.telegrambot.TelegramBot;
 import com.pengrad.telegrambot.model.CallbackQuery;
 import com.pengrad.telegrambot.model.Message;
@@ -48,6 +48,8 @@ public class TelegramBotHandler extends BaseHandler {
     private final UserSettingsService userSettingsService;
     private final MaterialPdfGenerator materialPdfGenerator;
     private final CloudStorageFacade cloudStorageFacade;
+    private final MaintenanceModeService maintenanceModeService;
+    private final BackupService backupService;
     private final ZipCourseImportService zipCourseImportService;
 
     @Value("${message.max-length:2000}")
@@ -74,7 +76,7 @@ public class TelegramBotHandler extends BaseHandler {
                               UserMistakeRepository userMistakeRepository,
                               UserTestResultRepository userTestResultRepository,
                               CourseImportService courseImportService,
-                              ZipCourseImportService zipCourseImportService,   // новый параметр
+                              ZipCourseImportService zipCourseImportService,
                               CourseRepository courseRepository,
                               SectionRepository sectionRepository,
                               TopicRepository topicRepository,
@@ -86,8 +88,10 @@ public class TelegramBotHandler extends BaseHandler {
                               UserStudyTimeRepository userStudyTimeRepository,
                               UserLockService userLockService,
                               MaterialPdfGenerator materialPdfGenerator,
-                              CloudStorageFacade cloudStorageFacade) {
-        super(new TelegramMessageSender(telegramBot), sessionService, navigationService, adminUserRepository, userSettingsService);
+                              CloudStorageFacade cloudStorageFacade,
+                              MaintenanceModeService maintenanceModeService,
+                              BackupService backupService) {
+        super(new TelegramMessageSender(telegramBot), sessionService, navigationService, adminUserRepository, userSettingsService, maintenanceModeService);
         this.telegramBot = telegramBot;
         this.pdfExportService = pdfExportService;
         this.rateLimiterService = rateLimiterService;
@@ -100,24 +104,28 @@ public class TelegramBotHandler extends BaseHandler {
         this.userSettingsService = userSettingsService;
         this.materialPdfGenerator = materialPdfGenerator;
         this.cloudStorageFacade = cloudStorageFacade;
+        this.maintenanceModeService = maintenanceModeService;
+        this.backupService = backupService;
         this.zipCourseImportService = zipCourseImportService;
 
         // Создаём зависимые хендлеры
-        this.courseNavHandler = new CourseNavigationHandler(
-                messageSender, sessionService, navigationService, adminUserRepository,
-                keyboardBuilder, userSettingsService, materialPdfGenerator, cloudStorageFacade);
-        this.testHandler = new TestHandler(messageSender, sessionService, navigationService,
-                questionRepository, adminUserRepository, answerOptionRepository,
-                userProgressRepository, userMistakeRepository, userTestResultRepository,
-                courseNavHandler, userSettingsService);
         this.adminHandler = new AdminHandler(messageSender, new TelegramFileDownloader(telegramBot),
                 sessionService, navigationService, courseImportService, zipCourseImportService,
                 courseRepository, keyboardBuilder, sectionRepository, topicRepository,
                 blockRepository, questionRepository, answerOptionRepository,
                 blockImageRepository, questionImageRepository, adminUserRepository,
-                userProgressRepository, userStudyTimeRepository, objectMapper, userSettingsService);
+                userProgressRepository, userStudyTimeRepository, objectMapper, userSettingsService,
+                backupService, maintenanceModeService);
+        this.courseNavHandler = new CourseNavigationHandler(
+                messageSender, sessionService, navigationService, adminUserRepository,
+                keyboardBuilder, userSettingsService, materialPdfGenerator, cloudStorageFacade,
+                maintenanceModeService);
+        this.testHandler = new TestHandler(messageSender, sessionService, navigationService,
+                questionRepository, adminUserRepository, answerOptionRepository,
+                userProgressRepository, userMistakeRepository, userTestResultRepository,
+                courseNavHandler, userSettingsService, maintenanceModeService);
         this.settingsHandler = new SettingsHandler(messageSender, sessionService, navigationService,
-                adminUserRepository, userSettingsService, progressCleanupService);
+                adminUserRepository, userSettingsService, progressCleanupService, maintenanceModeService);
     }
 
     private boolean isAdminState(BotState state) {
@@ -127,7 +135,39 @@ public class TelegramBotHandler extends BaseHandler {
                 state == BotState.EDIT_SECTION_NAME_DESC ||
                 state == BotState.EDIT_TOPIC_JSON ||
                 state == BotState.AWAITING_IMAGE ||
-                state == BotState.AWAITING_COURSE_JSON;
+                state == BotState.AWAITING_COURSE_JSON ||
+                state == BotState.AWAITING_SECTION_JSON ||
+                state == BotState.AWAITING_BACKUP_FILE;
+    }
+
+    @Override
+    protected void sendMainMenu(Long userId, Integer messageId) {
+        if (isMaintenanceBlocked(userId)) {
+            sendMaintenanceMessage(getEffectiveUserId(userId));
+            return;
+        }
+
+        String text = MSG_MAIN_MENU;
+        BotKeyboard keyboard = new BotKeyboard()
+                .addRow(BotButton.callback(BUTTON_MY_COURSES, CALLBACK_MY_COURSES),
+                        BotButton.callback(BUTTON_ALL_COURSES, CALLBACK_ALL_COURSES))
+                .addRow(BotButton.callback(BUTTON_SEARCH, CALLBACK_SEARCH_COURSES),
+                        BotButton.callback(BUTTON_STATISTICS, CALLBACK_STATISTICS))
+                .addRow(BotButton.callback(BUTTON_MISTAKES, CALLBACK_MY_MISTAKES))
+                .addRow(BotButton.callback("⚙️ Настройки", CALLBACK_SETTINGS));
+
+        if (isAdmin(userId)) {
+            keyboard.addRow(
+                    BotButton.callback("🎓 Adm Курсы", CALLBACK_ADMIN_COURSES_MENU),
+                    BotButton.callback("💾 Adm БД", CALLBACK_ADMIN_DB)
+            );
+        }
+
+        if (messageId != null) {
+            editMessage(userId, messageId, text, keyboard);
+        } else {
+            sendMessage(userId, text, keyboard);
+        }
     }
 
     public void handle(Update update) {
@@ -202,6 +242,9 @@ public class TelegramBotHandler extends BaseHandler {
                     break;
                 case AWAITING_PAGE_SIZE_INPUT:
                     settingsHandler.handlePageSizeInput(userId, text, message.messageId());
+                    break;
+                case AWAITING_BACKUP_FILE:
+                    sendMessage(userId, "📁 Пожалуйста, отправьте файл резервной копии (дамп БД в формате .dump), а не текст.");
                     break;
                 default:
                     sendMainMenu(userId, message.messageId());
@@ -307,84 +350,61 @@ public class TelegramBotHandler extends BaseHandler {
 
                 // экспорт учебных материалов
                 case CALLBACK_EXPORT_TOPIC:
-                    courseNavHandler.handleExportTopic(userId, messageId, data);   // ← теперь передаём весь data
+                    courseNavHandler.handleExportTopic(userId, messageId, data);
                     break;
                 case CALLBACK_EXPORT_SECTION:
-                    courseNavHandler.handleExportSection(userId, messageId, data); // ← теперь передаём весь data
+                    courseNavHandler.handleExportSection(userId, messageId, data);
                     break;
                 case CALLBACK_EXPORT_COURSE:
-                    courseNavHandler.handleExportCourse(userId, messageId, data);  // ← теперь передаём весь data
+                    courseNavHandler.handleExportCourse(userId, messageId, data);
                     break;
 
-                // администрирование
+                // администрирование курсов
                 case CALLBACK_CREATE_COURSE:
-                    if (!isAdmin(userId)) return;
-                    adminHandler.promptCreateCourse(userId, messageId);
-                    break;
                 case CALLBACK_EDIT_COURSE:
-                    if (!isAdmin(userId)) return;
-                    adminHandler.promptEditCourse(userId, messageId, pageSize);
-                    break;
                 case CALLBACK_DELETE_COURSE:
-                    if (!isAdmin(userId)) return;
-                    adminHandler.promptDeleteCourse(userId, messageId, pageSize);
-                    break;
+                case CALLBACK_ADMIN_COURSES_MENU:
                 case CALLBACK_SELECT_COURSE_FOR_EDIT:
-                    if (!isAdmin(userId)) return;
-                    adminHandler.handleSelectCourseForEdit(userId, messageId, Long.parseLong(parts[1]));
-                    break;
                 case CALLBACK_SELECT_COURSE_FOR_DELETE:
-                    if (!isAdmin(userId)) return;
-                    adminHandler.handleSelectCourseForDelete(userId, messageId, Long.parseLong(parts[1]));
-                    break;
                 case CALLBACK_EDIT_COURSE_ACTION:
-                    if (!isAdmin(userId)) return;
-                    adminHandler.handleEditCourseAction(userId, messageId, parts[1], pageSize);
-                    break;
-                case CALLBACK_EDIT_SECTION_ACTION:
-                    if (!isAdmin(userId)) return;
-                    adminHandler.handleEditSectionAction(userId, messageId, parts[1], pageSize);
-                    break;
                 case CALLBACK_SELECT_SECTION_FOR_EDIT:
-                    if (!isAdmin(userId)) return;
-                    adminHandler.handleSelectSectionForEdit(userId, messageId, Long.parseLong(parts[1]));
-                    break;
+                case CALLBACK_EDIT_SECTION_ACTION:
                 case CALLBACK_SELECT_TOPIC_FOR_EDIT:
-                    if (!isAdmin(userId)) return;
-                    adminHandler.handleSelectTopicForEdit(userId, messageId, Long.parseLong(parts[1]));
-                    break;
                 case CALLBACK_CONFIRM_DELETE_COURSE:
-                    if (!isAdmin(userId)) return;
-                    adminHandler.handleConfirmDeleteCourse(userId, messageId, Long.parseLong(parts[1]));
-                    break;
                 case CALLBACK_RETRY:
-                    adminHandler.handleRetry(userId, messageId);
-                    break;
                 case CALLBACK_ADMIN_COURSES_PAGE:
-                    if (!isAdmin(userId)) return;
-                    adminHandler.handleAdminCoursesPage(userId, messageId, parts[1], Integer.parseInt(parts[2]), pageSize);
-                    break;
                 case CALLBACK_ADMIN_SECTIONS_PAGE:
-                    if (!isAdmin(userId)) return;
-                    adminHandler.handleAdminSectionsPage(userId, messageId, Long.parseLong(parts[1]), Integer.parseInt(parts[2]), pageSize);
-                    break;
                 case CALLBACK_ADMIN_TOPICS_PAGE:
-                    if (!isAdmin(userId)) return;
-                    adminHandler.handleAdminTopicsPage(userId, messageId, Long.parseLong(parts[1]), Integer.parseInt(parts[2]), pageSize);
-                    break;
                 case CALLBACK_ADMIN_BACK_TO_SECTIONS:
-                    if (!isAdmin(userId)) return;
-                    adminHandler.handleBackToSectionsFromEdit(userId, messageId, pageSize);
-                    break;
                 case CALLBACK_ADMIN_BACK_TO_TOPICS:
                     if (!isAdmin(userId)) return;
-                    if (parts.length >= 3) {
-                        Long sectionId = Long.parseLong(parts[1]);
-                        int page = Integer.parseInt(parts[2]);
-                        adminHandler.handleBackToTopicsFromEdit(userId, messageId, sectionId, page, pageSize);
-                    } else {
-                        adminHandler.handleBackToTopicsFromEdit(userId, messageId, pageSize);
-                    }
+                    adminHandler.handleAdminCallback(userId, messageId, data, pageSize);
+                    break;
+
+                // управление базой данных
+                case CALLBACK_ADMIN_DB:
+                    if (!isAdmin(userId)) return;
+                    adminHandler.showDatabaseMenu(userId, messageId);
+                    break;
+                case CALLBACK_BACKUP_NOW:
+                    if (!isAdmin(userId)) return;
+                    adminHandler.performBackupNow(userId, messageId);
+                    break;
+                case CALLBACK_RESTORE:
+                    if (!isAdmin(userId)) return;
+                    adminHandler.showRestoreMenu(userId, messageId);
+                    break;
+                case CALLBACK_RESTORE_SELECT:
+                    if (!isAdmin(userId)) return;
+                    adminHandler.restoreFromBackup(userId, messageId, parts[1]);
+                    break;
+                case CALLBACK_UPLOAD_BACKUP_FILE:
+                    if (!isAdmin(userId)) return;
+                    adminHandler.promptBackupFileUpload(userId, messageId);
+                    break;
+                case CALLBACK_TOGGLE_MAINTENANCE:
+                    if (!isAdmin(userId)) return;
+                    adminHandler.toggleMaintenanceMode(userId, messageId);
                     break;
 
                 // статистика и ошибки

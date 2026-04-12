@@ -10,13 +10,12 @@ import com.lbt.telegram_learning_bot.platform.Platform;
 import com.lbt.telegram_learning_bot.repository.*;
 import com.lbt.telegram_learning_bot.repository.UserStudyTimeRepository;
 import com.lbt.telegram_learning_bot.service.*;
+import com.lbt.telegram_learning_bot.service.cloud.CloudStorageFacade;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 
@@ -42,7 +41,8 @@ public class VkBotHandler {
     private final UserSettingsService userSettingsService;
     private final MaterialPdfGenerator materialPdfGenerator;
     private final CloudStorageFacade cloudStorageFacade;
-    private final ZipCourseImportService zipCourseImportService;
+    private final MaintenanceModeService maintenanceModeService;
+    private final BackupService backupService;
 
     @Value("${vk.bot.page-size:3}")
     private int vkPageSize;
@@ -78,7 +78,9 @@ public class VkBotHandler {
                         VkHttpClient vkHttpClient,
                         UserLockService userLockService,
                         MaterialPdfGenerator materialPdfGenerator,
-                        CloudStorageFacade cloudStorageFacade) {
+                        CloudStorageFacade cloudStorageFacade,
+                        MaintenanceModeService maintenanceModeService,
+                        BackupService backupService) {
         this.sender = sender;
         this.sessionService = sessionService;
         this.navigationService = navigationService;
@@ -90,22 +92,63 @@ public class VkBotHandler {
         this.userSettingsService = userSettingsService;
         this.materialPdfGenerator = materialPdfGenerator;
         this.cloudStorageFacade = cloudStorageFacade;
-        this.zipCourseImportService = zipCourseImportService;
+        this.maintenanceModeService = maintenanceModeService;
+        this.backupService = backupService;
 
-        this.courseNavHandler = new CourseNavigationHandler(sender, sessionService, navigationService,
-                adminUserRepository, keyboardBuilder, userSettingsService, materialPdfGenerator, cloudStorageFacade);
-        this.testHandler = new TestHandler(sender, sessionService, navigationService,
-                questionRepository, adminUserRepository, answerOptionRepository,
-                userProgressRepository, userMistakeRepository, userTestResultRepository,
-                courseNavHandler, userSettingsService);
+
         this.adminHandler = new AdminHandler(sender, new VkFileDownloader(vkHttpClient),
                 sessionService, navigationService, courseImportService, zipCourseImportService,
                 courseRepository, keyboardBuilder, sectionRepository, topicRepository,
                 blockRepository, questionRepository, answerOptionRepository,
                 blockImageRepository, questionImageRepository, adminUserRepository,
-                userProgressRepository, userStudyTimeRepository, objectMapper, userSettingsService);
+                userProgressRepository, userStudyTimeRepository, objectMapper, userSettingsService,
+                backupService, maintenanceModeService);
+        this.courseNavHandler = new CourseNavigationHandler(sender, sessionService, navigationService,
+                adminUserRepository, keyboardBuilder, userSettingsService, materialPdfGenerator, cloudStorageFacade,
+                maintenanceModeService);
+        this.testHandler = new TestHandler(sender, sessionService, navigationService,
+                questionRepository, adminUserRepository, answerOptionRepository,
+                userProgressRepository, userMistakeRepository, userTestResultRepository,
+                courseNavHandler, userSettingsService, maintenanceModeService);
         this.settingsHandler = new SettingsHandler(sender, sessionService, navigationService,
-                adminUserRepository, userSettingsService, progressCleanupService);
+                adminUserRepository, userSettingsService, progressCleanupService, maintenanceModeService);
+    }
+
+    private boolean isMaintenanceBlocked(long internalUserId) {
+        return maintenanceModeService.isMaintenance() && !isAdmin(internalUserId);
+    }
+
+    private void sendMaintenanceMessage(long vkUserId) {
+        String text = "🔧 Бот временно недоступен. Ведутся технические работы. Пожалуйста, зайдите позже.";
+        sender.sendText(vkUserId, text);
+    }
+
+    private void sendMainMenu(long internalUserId, long vkUserId, Integer messageId) {
+        if (isMaintenanceBlocked(internalUserId)) {
+            sendMaintenanceMessage(vkUserId);
+            return;
+        }
+
+        BotKeyboard keyboard = new BotKeyboard()
+                .addRow(BotButton.callback(BUTTON_MY_COURSES, CALLBACK_MY_COURSES),
+                        BotButton.callback(BUTTON_ALL_COURSES, CALLBACK_ALL_COURSES))
+                .addRow(BotButton.callback(BUTTON_SEARCH, CALLBACK_SEARCH_COURSES),
+                        BotButton.callback(BUTTON_STATISTICS, CALLBACK_STATISTICS))
+                .addRow(BotButton.callback(BUTTON_MISTAKES, CALLBACK_MY_MISTAKES))
+                .addRow(BotButton.callback("⚙️ Настройки", CALLBACK_SETTINGS));
+
+        if (isAdmin(internalUserId)) {
+            keyboard.addRow(
+                    BotButton.callback("🎓 Adm Курсы", CALLBACK_ADMIN_COURSES_MENU),
+                    BotButton.callback("💾 Adm БД", CALLBACK_ADMIN_DB)
+            );
+        }
+
+        if (messageId != null) {
+            sender.editMenu(vkUserId, messageId, MSG_MAIN_MENU, keyboard);
+        } else {
+            sender.sendMenu(vkUserId, MSG_MAIN_MENU, keyboard);
+        }
     }
 
     // ================== Публичные методы ==================
@@ -124,6 +167,7 @@ public class VkBotHandler {
             }
             text = text.trim();
             BotState currentState = sessionService.getCurrentState(internalUserId);
+
             if (text.startsWith("/start") || text.equals("начать")) {
                 UserContext context = sessionService.getCurrentContext(internalUserId);
                 if (context.getUserName() == null) {
@@ -134,6 +178,7 @@ public class VkBotHandler {
                 sessionService.updateSessionState(internalUserId, BotState.MAIN_MENU);
                 return;
             }
+
             if (text.startsWith("/link")) {
                 String[] parts = text.split("\\s+", 2);
                 if (parts.length == 2 && !parts[1].isBlank()) {
@@ -143,6 +188,7 @@ public class VkBotHandler {
                 }
                 return;
             }
+
             switch (currentState) {
                 case AWAITING_SEARCH_QUERY:
                     courseNavHandler.handleSearchQuery(internalUserId, text, vkPageSize);
@@ -150,6 +196,9 @@ public class VkBotHandler {
                 case AWAITING_LINK_CODE:
                     linkHandler.applyCode(internalUserId, text, Platform.VK, vkUserId, sender);
                     sessionService.updateSessionState(internalUserId, BotState.MAIN_MENU);
+                    break;
+                case AWAITING_BACKUP_FILE:
+                    sender.sendText(vkUserId, "📁 Пожалуйста, отправьте файл резервной копии (дамп БД в формате .dump), а не текст.");
                     break;
                 default:
                     sendMainMenu(internalUserId, vkUserId, null);
@@ -256,9 +305,9 @@ public class VkBotHandler {
                     testHandler.handleTestCourse(internalUserId, messageId, Long.parseLong(parts[1]));
                     break;
 
-                /// экспорт учебных материалов
+                // экспорт учебных материалов
                 case CALLBACK_EXPORT_TOPIC:
-                    courseNavHandler.handleExportTopic(internalUserId, messageId, payload);   // ← payload = полный callback
+                    courseNavHandler.handleExportTopic(internalUserId, messageId, payload);
                     break;
                 case CALLBACK_EXPORT_SECTION:
                     courseNavHandler.handleExportSection(internalUserId, messageId, payload);
@@ -267,75 +316,52 @@ public class VkBotHandler {
                     courseNavHandler.handleExportCourse(internalUserId, messageId, payload);
                     break;
 
-                // администрирование
+                // администрирование курсов
                 case CALLBACK_CREATE_COURSE:
-                    if (!isAdmin(internalUserId)) return;
-                    adminHandler.promptCreateCourse(internalUserId, messageId);
-                    break;
                 case CALLBACK_EDIT_COURSE:
-                    if (!isAdmin(internalUserId)) return;
-                    adminHandler.promptEditCourse(internalUserId, messageId, vkPageSize);
-                    break;
                 case CALLBACK_DELETE_COURSE:
-                    if (!isAdmin(internalUserId)) return;
-                    adminHandler.promptDeleteCourse(internalUserId, messageId, vkPageSize);
-                    break;
+                case CALLBACK_ADMIN_COURSES_MENU:
                 case CALLBACK_SELECT_COURSE_FOR_EDIT:
-                    if (!isAdmin(internalUserId)) return;
-                    adminHandler.handleSelectCourseForEdit(internalUserId, messageId, Long.parseLong(parts[1]));
-                    break;
                 case CALLBACK_SELECT_COURSE_FOR_DELETE:
-                    if (!isAdmin(internalUserId)) return;
-                    adminHandler.handleSelectCourseForDelete(internalUserId, messageId, Long.parseLong(parts[1]));
-                    break;
                 case CALLBACK_EDIT_COURSE_ACTION:
-                    if (!isAdmin(internalUserId)) return;
-                    adminHandler.handleEditCourseAction(internalUserId, messageId, parts[1], vkPageSize);
-                    break;
-                case CALLBACK_EDIT_SECTION_ACTION:
-                    if (!isAdmin(internalUserId)) return;
-                    adminHandler.handleEditSectionAction(internalUserId, messageId, parts[1], vkPageSize);
-                    break;
                 case CALLBACK_SELECT_SECTION_FOR_EDIT:
-                    if (!isAdmin(internalUserId)) return;
-                    adminHandler.handleSelectSectionForEdit(internalUserId, messageId, Long.parseLong(parts[1]));
-                    break;
+                case CALLBACK_EDIT_SECTION_ACTION:
                 case CALLBACK_SELECT_TOPIC_FOR_EDIT:
-                    if (!isAdmin(internalUserId)) return;
-                    adminHandler.handleSelectTopicForEdit(internalUserId, messageId, Long.parseLong(parts[1]));
-                    break;
                 case CALLBACK_CONFIRM_DELETE_COURSE:
-                    if (!isAdmin(internalUserId)) return;
-                    adminHandler.handleConfirmDeleteCourse(internalUserId, messageId, Long.parseLong(parts[1]));
-                    break;
                 case CALLBACK_RETRY:
-                    adminHandler.handleRetry(internalUserId, messageId);
-                    break;
                 case CALLBACK_ADMIN_COURSES_PAGE:
-                    if (!isAdmin(internalUserId)) return;
-                    adminHandler.handleAdminCoursesPage(internalUserId, messageId, parts[1], Integer.parseInt(parts[2]), vkPageSize);
-                    break;
                 case CALLBACK_ADMIN_SECTIONS_PAGE:
-                    if (!isAdmin(internalUserId)) return;
-                    adminHandler.handleAdminSectionsPage(internalUserId, messageId, Long.parseLong(parts[1]), Integer.parseInt(parts[2]), vkPageSize);
-                    break;
                 case CALLBACK_ADMIN_TOPICS_PAGE:
-                    if (!isAdmin(internalUserId)) return;
-                    adminHandler.handleAdminTopicsPage(internalUserId, messageId, Long.parseLong(parts[1]), Integer.parseInt(parts[2]), vkPageSize);
-                    break;
                 case CALLBACK_ADMIN_BACK_TO_SECTIONS:
-                    if (!isAdmin(internalUserId)) return;
-                    adminHandler.handleBackToSectionsFromEdit(internalUserId, messageId, vkPageSize);
-                    break;
                 case CALLBACK_ADMIN_BACK_TO_TOPICS:
                     if (!isAdmin(internalUserId)) return;
-                    if (parts.length >= 3) {
-                        Long sectionId = Long.parseLong(parts[1]);
-                        int page = Integer.parseInt(parts[2]);
-                        adminHandler.handleBackToTopicsFromEdit(internalUserId, messageId, sectionId, page, vkPageSize);
-                    } else {
-                        adminHandler.handleBackToTopicsFromEdit(internalUserId, messageId, vkPageSize);
-                    }
+                    adminHandler.handleAdminCallback(internalUserId, messageId, payload, vkPageSize);
+                    break;
+
+                // управление базой данных
+                case CALLBACK_ADMIN_DB:
+                    if (!isAdmin(internalUserId)) return;
+                    adminHandler.showDatabaseMenu(internalUserId, messageId);
+                    break;
+                case CALLBACK_BACKUP_NOW:
+                    if (!isAdmin(internalUserId)) return;
+                    adminHandler.performBackupNow(internalUserId, messageId);
+                    break;
+                case CALLBACK_RESTORE:
+                    if (!isAdmin(internalUserId)) return;
+                    adminHandler.showRestoreMenu(internalUserId, messageId);
+                    break;
+                case CALLBACK_RESTORE_SELECT:
+                    if (!isAdmin(internalUserId)) return;
+                    adminHandler.restoreFromBackup(internalUserId, messageId, parts[1]);
+                    break;
+                case CALLBACK_UPLOAD_BACKUP_FILE:
+                    if (!isAdmin(internalUserId)) return;
+                    adminHandler.promptBackupFileUpload(internalUserId, messageId);
+                    break;
+                case CALLBACK_TOGGLE_MAINTENANCE:
+                    if (!isAdmin(internalUserId)) return;
+                    adminHandler.toggleMaintenanceMode(internalUserId, messageId);
                     break;
 
                 // статистика и ошибки
@@ -452,28 +478,6 @@ public class VkBotHandler {
 
     // ================== Приватные методы ==================
 
-    private void sendMainMenu(long internalUserId, long vkUserId, Integer messageId) {
-        BotKeyboard keyboard = new BotKeyboard()
-                .addRow(BotButton.callback(BUTTON_MY_COURSES, CALLBACK_MY_COURSES),
-                        BotButton.callback(BUTTON_ALL_COURSES, CALLBACK_ALL_COURSES))
-                .addRow(BotButton.callback(BUTTON_SEARCH, CALLBACK_SEARCH_COURSES),
-                        BotButton.callback(BUTTON_STATISTICS, CALLBACK_STATISTICS))
-                .addRow(BotButton.callback(BUTTON_MISTAKES, CALLBACK_MY_MISTAKES))
-                .addRow(BotButton.callback("⚙️ Настройки", CALLBACK_SETTINGS));
-        if (isAdmin(internalUserId)) {
-            keyboard.addRow(
-                    BotButton.callback(BUTTON_CREATE_COURSE, CALLBACK_CREATE_COURSE),
-                    BotButton.callback(BUTTON_EDIT_COURSE, CALLBACK_EDIT_COURSE),
-                    BotButton.callback(BUTTON_DELETE_COURSE, CALLBACK_DELETE_COURSE)
-            );
-        }
-        if (messageId != null) {
-            sender.editMenu(vkUserId, messageId, MSG_MAIN_MENU, keyboard);
-        } else {
-            sender.sendMenu(vkUserId, MSG_MAIN_MENU, keyboard);
-        }
-    }
-
     private void showStatistics(long internalUserId, long vkUserId, Integer messageId) {
         long totalCourses = navigationService.getTotalStartedCourses(internalUserId);
         long completedCourses = navigationService.getCompletedCoursesCount(internalUserId);
@@ -543,7 +547,8 @@ public class VkBotHandler {
         return switch (state) {
             case EDIT_COURSE_SECTION_CHOOSE, EDIT_SECTION_CHOOSE_TOPIC,
                  EDIT_COURSE_NAME_DESC, EDIT_SECTION_NAME_DESC,
-                 EDIT_TOPIC_JSON, AWAITING_IMAGE, AWAITING_COURSE_JSON -> true;
+                 EDIT_TOPIC_JSON, AWAITING_IMAGE, AWAITING_COURSE_JSON,
+                 AWAITING_SECTION_JSON, AWAITING_BACKUP_FILE -> true;
             default -> false;
         };
     }

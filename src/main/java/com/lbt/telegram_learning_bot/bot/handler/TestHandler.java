@@ -9,6 +9,7 @@ import com.lbt.telegram_learning_bot.platform.BotButton;
 import com.lbt.telegram_learning_bot.platform.BotKeyboard;
 import com.lbt.telegram_learning_bot.platform.MessageSender;
 import com.lbt.telegram_learning_bot.repository.*;
+import com.lbt.telegram_learning_bot.service.MaintenanceModeService;
 import com.lbt.telegram_learning_bot.service.NavigationService;
 import com.lbt.telegram_learning_bot.service.UserSessionService;
 import com.lbt.telegram_learning_bot.service.UserSettingsService;
@@ -40,8 +41,9 @@ public class TestHandler extends BaseHandler {
                        UserMistakeRepository userMistakeRepository,
                        UserTestResultRepository userTestResultRepository,
                        CourseNavigationHandler courseNavHandler,
-                       UserSettingsService userSettingsService) {
-        super(messageSender, sessionService, navigationService, adminUserRepository, userSettingsService);
+                       UserSettingsService userSettingsService,
+                       MaintenanceModeService maintenanceModeService) {
+        super(messageSender, sessionService, navigationService, adminUserRepository, userSettingsService, maintenanceModeService);
         this.questionRepository = questionRepository;
         this.answerOptionRepository = answerOptionRepository;
         this.userProgressRepository = userProgressRepository;

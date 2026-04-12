@@ -63,7 +63,7 @@ public class TelegramMessageSender implements MessageSender {
             if (resp.description() != null && resp.description().contains("there is no text in the message")) {
                 log.debug("[TG] editMenu: message {} has no text, deleting and sending new", messageId);
                 bot.execute(new DeleteMessage(userId, messageId));
-                var sendReq = new com.pengrad.telegrambot.request.SendMessage(userId, text)
+                var sendReq = new SendMessage(userId, text)
                         .parseMode(ParseMode.Markdown);
                 if (keyboard != null) sendReq.replyMarkup(toInlineKeyboardMarkup(keyboard));
                 bot.execute(sendReq);

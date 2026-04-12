@@ -7,10 +7,7 @@ import com.lbt.telegram_learning_bot.platform.BotKeyboard;
 import com.lbt.telegram_learning_bot.platform.MessageSender;
 import com.lbt.telegram_learning_bot.platform.Platform;
 import com.lbt.telegram_learning_bot.repository.AdminUserRepository;
-import com.lbt.telegram_learning_bot.service.NavigationService;
-import com.lbt.telegram_learning_bot.service.UserProgressCleanupService;
-import com.lbt.telegram_learning_bot.service.UserSessionService;
-import com.lbt.telegram_learning_bot.service.UserSettingsService;
+import com.lbt.telegram_learning_bot.service.*;
 import lombok.extern.slf4j.Slf4j;
 
 import static com.lbt.telegram_learning_bot.util.Constants.*;
@@ -25,8 +22,9 @@ public class SettingsHandler extends BaseHandler {
                            NavigationService navigationService,
                            AdminUserRepository adminUserRepository,
                            UserSettingsService userSettingsService,
-                           UserProgressCleanupService progressCleanupService) {
-        super(messageSender, sessionService, navigationService, adminUserRepository, userSettingsService);
+                           UserProgressCleanupService progressCleanupService,
+                           MaintenanceModeService maintenanceModeService) {
+        super(messageSender, sessionService, navigationService, adminUserRepository, userSettingsService, maintenanceModeService);
         this.progressCleanupService = progressCleanupService;
     }
 

@@ -42,6 +42,7 @@ public class UserContext {
     private Integer adminTopicsPage = 0;     // текущая страница списка тем при редактировании
     private Integer previousCoursesPage = 0; // страница списка курсов, откуда пришли в тест
     private Long currentPlatformUserId; // ID пользователя на текущей платформе (для отправки сообщений)
+    private String selectedBackupFileName;  // имя выбранной резервной копии для восстановления
 
     public Long getCurrentPlatformUserId() {
         return currentPlatformUserId;

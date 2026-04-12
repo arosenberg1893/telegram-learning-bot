@@ -293,4 +293,42 @@ public final class Constants {
     public static final String ACTION_REPLACE_SECTION = "replace_section";
     public static final String MSG_SEND_JSON_SECTION = "Отправьте JSON-файл с полным содержимым раздела (темы, блоки, вопросы).";
     public static final BotState AWAITING_SECTION_JSON = BotState.AWAITING_SECTION_JSON; // добавить в enum BotState
+
+    // ========== Callback для меню администратора и управления БД ==========
+    public static final String CALLBACK_ADMIN_COURSES_MENU = "admin_courses_menu";
+    public static final String CALLBACK_ADMIN_DB = "admin_db";
+    public static final String CALLBACK_BACKUP_NOW = "backup_now";
+    public static final String CALLBACK_RESTORE = "restore";
+    public static final String CALLBACK_RESTORE_SELECT = "restore_select";
+    public static final String CALLBACK_UPLOAD_BACKUP_FILE = "upload_backup_file";
+    public static final String CALLBACK_TOGGLE_MAINTENANCE = "toggle_maintenance";
+
+    // ========== Текст для кнопок ==========
+    public static final String BUTTON_ADMIN_COURSES = "🎓 Adm Курсы";
+    public static final String BUTTON_ADMIN_DB = "💾 Adm БД";
+    public static final String BUTTON_BACKUP_NOW = "📤 Создать резервную копию";
+    public static final String BUTTON_RESTORE = "🔄 Восстановить из копии";
+    public static final String BUTTON_UPLOAD_BACKUP_FILE = "📁 Загрузить свой файл";
+    public static final String BUTTON_TOGGLE_MAINTENANCE_ON = "🔒 Включить режим обслуживания";
+    public static final String BUTTON_TOGGLE_MAINTENANCE_OFF = "🔓 Выключить режим обслуживания";
+
+    // ========== Сообщения ==========
+    public static final String MSG_MAINTENANCE_MODE_ENABLED = "🔧 Бот временно недоступен. Ведутся технические работы. Пожалуйста, зайдите позже.";
+    public static final String MSG_MAINTENANCE_MODE_TOGGLE_ON = "🔧 Режим обслуживания включён. Обычные пользователи не смогут взаимодействовать с ботом.\nДля выключения используйте эту кнопку снова.";
+    public static final String MSG_MAINTENANCE_MODE_TOGGLE_OFF = "✅ Режим обслуживания выключен. Бот снова доступен для всех пользователей.";
+    public static final String MSG_BACKUP_SUCCESS = "✅ Резервная копия успешно создана и загружена в облачные хранилища.\nФайл: %s";
+    public static final String MSG_BACKUP_ERROR = "❌ Ошибка при создании резервной копии: %s";
+    public static final String MSG_RESTORE_SUCCESS = "✅ База данных успешно восстановлена из резервной копии.\nФайл: %s";
+    public static final String MSG_RESTORE_ERROR = "❌ Ошибка при восстановлении базы данных: %s";
+    public static final String MSG_NO_BACKUPS = "❌ Нет сохранённых резервных копий для восстановления.";
+    public static final String MSG_UPLOAD_BACKUP_PROMPT = "📁 Отправьте файл резервной копии (дамп БД в формате .dump) для восстановления.\n\nВНИМАНИЕ: текущая база данных будет заменена. Перед восстановлением будет автоматически создана резервная копия.";
+    public static final String MSG_BACKUP_FILE_INVALID = "❌ Не удалось прочитать файл. Попробуйте ещё раз.";
+    public static final String MSG_DATABASE_MENU_HEADER = """
+        💾 **Управление базой данных**
+        
+        📋 Последние резервные копии:
+        %s
+        
+        🔧 Режим обслуживания: %s
+        """;
 }

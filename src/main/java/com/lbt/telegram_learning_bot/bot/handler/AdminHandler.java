@@ -12,11 +12,8 @@ import com.lbt.telegram_learning_bot.platform.BotKeyboard;
 import com.lbt.telegram_learning_bot.platform.FileDownloader;
 import com.lbt.telegram_learning_bot.platform.MessageSender;
 import com.lbt.telegram_learning_bot.repository.*;
-import com.lbt.telegram_learning_bot.service.CourseImportService;
-import com.lbt.telegram_learning_bot.service.NavigationService;
-import com.lbt.telegram_learning_bot.service.UserSessionService;
-import com.lbt.telegram_learning_bot.service.UserSettingsService;
-import com.lbt.telegram_learning_bot.service.ZipCourseImportService;
+import com.lbt.telegram_learning_bot.service.*;
+import com.lbt.telegram_learning_bot.util.BackupLogHelper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,6 +21,7 @@ import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static com.lbt.telegram_learning_bot.util.Constants.*;
 
@@ -46,6 +44,8 @@ public class AdminHandler extends BaseHandler {
     private final UserStudyTimeRepository userStudyTimeRepository;
     private final ObjectMapper objectMapper;
     private final KeyboardBuilder keyboardBuilder;
+    private final BackupService backupService;
+    private final MaintenanceModeService maintenanceModeService;
 
     public AdminHandler(MessageSender messageSender,
                         FileDownloader fileDownloader,
@@ -66,8 +66,10 @@ public class AdminHandler extends BaseHandler {
                         UserProgressRepository userProgressRepository,
                         UserStudyTimeRepository userStudyTimeRepository,
                         ObjectMapper objectMapper,
-                        UserSettingsService userSettingsService) {
-        super(messageSender, sessionService, navigationService, adminUserRepository, userSettingsService);
+                        UserSettingsService userSettingsService,
+                        BackupService backupService,
+                        MaintenanceModeService maintenanceModeService) {
+        super(messageSender, sessionService, navigationService, adminUserRepository, userSettingsService, maintenanceModeService);
         this.courseImportService = courseImportService;
         this.zipCourseImportService = zipCourseImportService;
         this.fileDownloader = fileDownloader;
@@ -84,9 +86,277 @@ public class AdminHandler extends BaseHandler {
         this.userStudyTimeRepository = userStudyTimeRepository;
         this.objectMapper = objectMapper;
         this.keyboardBuilder = keyboardBuilder;
+        this.backupService = backupService;
+        this.maintenanceModeService = maintenanceModeService;
     }
 
-    // ================== Публичные методы ==================
+    // ================== Обработка callback от диспетчера ==================
+    public void handleAdminCallback(Long userId, Integer messageId, String data, int pageSize) {
+        String[] parts = data.split(":", 3);
+        String action = parts[0];
+
+        switch (action) {
+            case CALLBACK_CREATE_COURSE:
+                promptCreateCourse(userId, messageId);
+                break;
+            case CALLBACK_EDIT_COURSE:
+                promptEditCourse(userId, messageId, pageSize);
+                break;
+            case CALLBACK_DELETE_COURSE:
+                promptDeleteCourse(userId, messageId, pageSize);
+                break;
+            case CALLBACK_ADMIN_COURSES_MENU:
+                showCoursesManagementMenu(userId, messageId);
+                break;
+            case CALLBACK_SELECT_COURSE_FOR_EDIT:
+                handleSelectCourseForEdit(userId, messageId, Long.parseLong(parts[1]));
+                break;
+            case CALLBACK_SELECT_COURSE_FOR_DELETE:
+                handleSelectCourseForDelete(userId, messageId, Long.parseLong(parts[1]));
+                break;
+            case CALLBACK_EDIT_COURSE_ACTION:
+                handleEditCourseAction(userId, messageId, parts[1], pageSize);
+                break;
+            case CALLBACK_SELECT_SECTION_FOR_EDIT:
+                handleSelectSectionForEdit(userId, messageId, Long.parseLong(parts[1]));
+                break;
+            case CALLBACK_EDIT_SECTION_ACTION:
+                handleEditSectionAction(userId, messageId, parts[1], pageSize);
+                break;
+            case CALLBACK_SELECT_TOPIC_FOR_EDIT:
+                handleSelectTopicForEdit(userId, messageId, Long.parseLong(parts[1]));
+                break;
+            case CALLBACK_CONFIRM_DELETE_COURSE:
+                handleConfirmDeleteCourse(userId, messageId, Long.parseLong(parts[1]));
+                break;
+            case CALLBACK_RETRY:
+                handleRetry(userId, messageId);
+                break;
+            case CALLBACK_ADMIN_COURSES_PAGE:
+                handleAdminCoursesPage(userId, messageId, parts[1], Integer.parseInt(parts[2]), pageSize);
+                break;
+            case CALLBACK_ADMIN_SECTIONS_PAGE:
+                handleAdminSectionsPage(userId, messageId, Long.parseLong(parts[1]), Integer.parseInt(parts[2]), pageSize);
+                break;
+            case CALLBACK_ADMIN_TOPICS_PAGE:
+                handleAdminTopicsPage(userId, messageId, Long.parseLong(parts[1]), Integer.parseInt(parts[2]), pageSize);
+                break;
+            case CALLBACK_ADMIN_BACK_TO_SECTIONS:
+                handleBackToSectionsFromEdit(userId, messageId, pageSize);
+                break;
+            case CALLBACK_ADMIN_BACK_TO_TOPICS:
+                if (parts.length >= 3) {
+                    Long sectionId = Long.parseLong(parts[1]);
+                    int page = Integer.parseInt(parts[2]);
+                    handleBackToTopicsFromEdit(userId, messageId, sectionId, page, pageSize);
+                } else {
+                    handleBackToTopicsFromEdit(userId, messageId, pageSize);
+                }
+                break;
+
+            case CALLBACK_ADMIN_DB:
+                showDatabaseMenu(userId, messageId);
+                break;
+            case CALLBACK_BACKUP_NOW:
+                performBackupNow(userId, messageId);
+                break;
+            case CALLBACK_RESTORE:
+                showRestoreMenu(userId, messageId);
+                break;
+            case CALLBACK_RESTORE_SELECT:
+                restoreFromBackup(userId, messageId, parts[1]);
+                break;
+            case CALLBACK_UPLOAD_BACKUP_FILE:
+                promptBackupFileUpload(userId, messageId);
+                break;
+            case CALLBACK_TOGGLE_MAINTENANCE:
+                toggleMaintenanceMode(userId, messageId);
+                break;
+
+            default:
+                log.warn("Unknown admin callback action: {}", action);
+        }
+    }
+
+    // ================== Меню управления курсами ==================
+    public void showCoursesManagementMenu(Long userId, Integer messageId) {
+        BotKeyboard keyboard = new BotKeyboard()
+                .addRow(BotButton.callback(BUTTON_CREATE_COURSE, CALLBACK_CREATE_COURSE))
+                .addRow(BotButton.callback(BUTTON_EDIT_COURSE, CALLBACK_EDIT_COURSE))
+                .addRow(BotButton.callback(BUTTON_DELETE_COURSE, CALLBACK_DELETE_COURSE))
+                .addRow(BotButton.callback(BUTTON_MAIN_MENU, CALLBACK_MAIN_MENU));
+        editMessage(userId, messageId, "Управление курсами:", keyboard);
+    }
+
+    // ================== Меню управления БД ==================
+    public void showDatabaseMenu(Long userId, Integer messageId) {
+        try {
+            List<BackupInfo> backups = backupService.getLatestBackups();
+            String backupInfo = formatBackupInfo(backups);
+            String maintenanceStatus = maintenanceModeService.isMaintenance()
+                    ? "✅ Включён"
+                    : "❌ Выключен";
+
+            String text = String.format("""
+                💾 **Управление базой данных**
+                
+                📋 Последние резервные копии:
+                %s
+                
+                🔧 Режим обслуживания: %s
+                """, backupInfo, maintenanceStatus);
+
+            BotKeyboard keyboard = new BotKeyboard()
+                    .addRow(BotButton.callback("📤 Создать резервную копию", CALLBACK_BACKUP_NOW))
+                    .addRow(BotButton.callback("🔄 Восстановить из копии", CALLBACK_RESTORE))
+                    .addRow(BotButton.callback("📁 Загрузить свой файл", CALLBACK_UPLOAD_BACKUP_FILE))
+                    .addRow(BotButton.callback(maintenanceModeService.isMaintenance() ? "🔓 Выключить режим обслуживания" : "🔒 Включить режим обслуживания", CALLBACK_TOGGLE_MAINTENANCE))
+                    .addRow(BotButton.callback(BUTTON_MAIN_MENU, CALLBACK_MAIN_MENU));
+
+            if (messageId != null) {
+                editMessage(userId, messageId, text, keyboard);
+            } else {
+                sendMessage(userId, text, keyboard);
+            }
+        } catch (Exception e) {
+            log.error("Error showing database menu for user {}", userId, e);
+            String errorText = "❌ Не удалось получить информацию о резервных копиях.";
+            BotKeyboard errorKeyboard = new BotKeyboard().addRow(BotButton.callback("🔙 Назад", CALLBACK_ADMIN_DB));
+            if (messageId != null) {
+                editMessage(userId, messageId, errorText, errorKeyboard);
+            } else {
+                sendMessage(userId, errorText, errorKeyboard);
+            }
+        }
+    }
+
+    private String formatBackupInfo(List<BackupInfo> backups) {
+        if (backups.isEmpty()) {
+            return "Нет сохранённых резервных копий.";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (BackupInfo backup : backups) {
+            sb.append("• ").append(backup.getFormattedTimestamp()).append(" (").append(backup.getFormattedSize()).append(")\n");
+        }
+        return sb.toString();
+    }
+
+    // ================== Резервное копирование ==================
+    public void performBackupNow(Long userId, Integer messageId) {
+        BackupLogHelper.logManualBackupStarted(userId);
+        Integer progressMsgId = sendProgressMessage(userId);
+        try {
+            BackupService.BackupResult result = backupService.createAndUploadBackup();
+            BackupLogHelper.logManualBackupSuccess(userId, result.fileName());
+
+            StringBuilder sb = new StringBuilder();
+            sb.append("✅ Резервная копия создана.\nФайл: ").append(result.fileName()).append("\n\n");
+            sb.append("Загрузка в облачные хранилища:\n");
+            for (Map.Entry<String, Boolean> entry : result.uploadResults().entrySet()) {
+                String emoji = entry.getValue() ? "✅" : "❌";
+                sb.append(emoji).append(" ").append(entry.getKey()).append("\n");
+            }
+
+            BotKeyboard keyboard = new BotKeyboard()
+                    .addRow(BotButton.callback("🔙 Назад в Adm БД", CALLBACK_ADMIN_DB));
+
+            editMessage(userId, messageId, sb.toString(), keyboard);
+        } catch (Exception e) {
+            log.error("Manual backup failed for user {}", userId, e);
+            BackupLogHelper.logManualBackupError(userId, e.getMessage());
+            sendMessage(userId, "❌ Ошибка при создании резервной копии: " + e.getMessage(), createBackToMainKeyboard());
+        } finally {
+            if (progressMsgId != null) deleteMessage(userId, progressMsgId);
+        }
+    }
+
+    public void showRestoreMenu(Long userId, Integer messageId) {
+        try {
+            List<BackupInfo> backups = backupService.getLatestBackups();
+            if (backups.isEmpty()) {
+                String text = "❌ Нет сохранённых резервных копий для восстановления.";
+                BotKeyboard keyboard = new BotKeyboard().addRow(BotButton.callback("🔙 Назад", CALLBACK_ADMIN_DB));
+                if (messageId != null) {
+                    editMessage(userId, messageId, text, keyboard);
+                } else {
+                    sendMessage(userId, text, keyboard);
+                }
+                return;
+            }
+            BotKeyboard keyboard = new BotKeyboard();
+            for (BackupInfo backup : backups) {
+                String buttonText = backup.getFormattedTimestamp() + " (" + backup.getFormattedSize() + ")";
+                keyboard.addRow(BotButton.callback(buttonText, CALLBACK_RESTORE_SELECT + ":" + backup.getFileName()));
+            }
+            keyboard.addRow(BotButton.callback("🔙 Назад", CALLBACK_ADMIN_DB));
+            editMessage(userId, messageId, "Выберите резервную копию для восстановления:", keyboard);
+        } catch (Exception e) {
+            log.error("Error showing restore menu for user {}", userId, e);
+            sendMessage(userId, "❌ Не удалось получить список резервных копий.", createBackToMainKeyboard());
+        }
+    }
+
+    public void restoreFromBackup(Long userId, Integer messageId, String fileName) {
+        BackupLogHelper.logRestoreStarted(userId, fileName);
+        Integer progressMsgId = sendProgressMessage(userId);
+        try {
+            byte[] backupData = backupService.downloadBackup(fileName);
+            backupService.restoreFromDump(backupData);
+            BackupLogHelper.logRestoreSuccess(userId, fileName);
+            sendMessage(userId, "✅ База данных успешно восстановлена из резервной копии.\nФайл: " + fileName);
+            showDatabaseMenu(userId, messageId);
+        } catch (Exception e) {
+            log.error("Restore failed for user {} from file {}", userId, fileName, e);
+            BackupLogHelper.logRestoreError(userId, fileName, e.getMessage());
+            sendMessage(userId, "❌ Ошибка при восстановлении базы данных: " + e.getMessage(), createBackToMainKeyboard());
+        } finally {
+            if (progressMsgId != null) deleteMessage(userId, progressMsgId);
+        }
+    }
+
+    public void promptBackupFileUpload(Long userId, Integer messageId) {
+        editMessage(userId, messageId, "📁 Отправьте файл резервной копии (дамп БД в формате .dump) для восстановления.\n\nВНИМАНИЕ: текущая база данных будет заменена. Перед восстановлением будет автоматически создана резервная копия.", createCancelKeyboard());
+        sessionService.updateSessionState(userId, BotState.AWAITING_BACKUP_FILE);
+    }
+
+    public void handleBackupFileUpload(Long userId, Object fileReference) {
+        if (!(fileReference instanceof byte[] fileContent)) {
+            sendMessage(userId, "❌ Не удалось прочитать файл. Попробуйте ещё раз.", createCancelKeyboard());
+            sessionService.updateSessionState(userId, BotState.MAIN_MENU);
+            return;
+        }
+        BackupLogHelper.logRestoreStarted(userId, "user_upload");
+        Integer progressMsgId = sendProgressMessage(userId);
+        try {
+            backupService.restoreFromUserUpload(fileContent);
+            BackupLogHelper.logRestoreSuccess(userId, "user_upload");
+            sendMessage(userId, "✅ База данных успешно восстановлена из загруженного файла.");
+            showDatabaseMenu(userId, null);
+        } catch (Exception e) {
+            log.error("Restore from user upload failed for user {}", userId, e);
+            BackupLogHelper.logRestoreError(userId, "user_upload", e.getMessage());
+            sendMessage(userId, "❌ Ошибка при восстановлении из загруженного файла: " + e.getMessage(), createBackToMainKeyboard());
+        } finally {
+            if (progressMsgId != null) deleteMessage(userId, progressMsgId);
+        }
+        sessionService.updateSessionState(userId, BotState.MAIN_MENU);
+    }
+
+    // ================== Режим обслуживания ==================
+    public void toggleMaintenanceMode(Long userId, Integer messageId) {
+        boolean wasMaintenance = maintenanceModeService.isMaintenance();
+        if (wasMaintenance) {
+            maintenanceModeService.disableMaintenance();
+            BackupLogHelper.logMaintenanceDisabled(userId);
+        } else {
+            maintenanceModeService.enableMaintenance();
+            BackupLogHelper.logMaintenanceEnabled(userId);
+        }
+        // Обновляем меню, где уже отображается актуальный статус
+        showDatabaseMenu(userId, messageId);
+    }
+
+    // ================== Публичные методы обработки сообщений ==================
 
     public void handleRetry(Long userId, Integer messageId) {
         BotState state = sessionService.getCurrentState(userId);
@@ -98,39 +368,6 @@ public class AdminHandler extends BaseHandler {
             editMessage(userId, messageId, MSG_SEND_JSON_TOPIC, createAdminCancelKeyboardWithBackToTopics());
         } else if (state == BotState.AWAITING_SECTION_JSON) {
             promptEditSectionJson(userId, messageId);
-        }
-    }
-
-    private boolean isZipFile(byte[] content) {
-        return content.length > 4 &&
-                content[0] == 0x50 && content[1] == 0x4B &&
-                content[2] == 0x03 && content[3] == 0x04;
-    }
-
-    private void processCourseZip(Long userId, byte[] fileContent) {
-        Integer progressMessageId = sendProgressMessage(userId);
-        try {
-            InputStream inputStream = new ByteArrayInputStream(fileContent);
-            Course course = zipCourseImportService.importCourseFromZip(inputStream);
-            List<PendingImage> pending = courseImportService.collectCourseImages(course.getId());
-            if (!pending.isEmpty()) {
-                UserContext context = sessionService.getCurrentContext(userId);
-                context.setPendingImages(pending);
-                context.setCurrentImageIndex(0);
-                sessionService.updateSession(userId, BotState.AWAITING_IMAGE, context);
-                requestNextImage(userId, null);
-            } else {
-                sendMessage(userId, "Успешно. Курс \"" + course.getTitle() + "\" добавлен. Изображения не требуются.", createBackToMainKeyboard());
-                sessionService.updateSessionState(userId, BotState.MAIN_MENU);
-            }
-        } catch (InvalidJsonException e) {
-            log.warn("JSON validation error: {}", e.getMessage());
-            sendMessage(userId, e.getMessage(), createRetryOrCancelKeyboard());
-        } catch (Exception e) {
-            log.error("Error importing course from ZIP", e);
-            sendMessage(userId, "Ошибка импорта курса из ZIP: " + e.getMessage(), createRetryOrCancelKeyboard());
-        } finally {
-            if (progressMessageId != null) deleteMessage(userId, progressMessageId);
         }
     }
 
@@ -148,7 +385,6 @@ public class AdminHandler extends BaseHandler {
                 return;
             }
 
-            // Обычный JSON
             if (currentState == BotState.AWAITING_COURSE_JSON) {
                 processCourseJson(userId, fileContent);
             } else if (currentState == BotState.EDIT_COURSE_NAME_DESC) {
@@ -159,6 +395,8 @@ public class AdminHandler extends BaseHandler {
                 processTopicJson(userId, fileContent);
             } else if (currentState == BotState.AWAITING_SECTION_JSON) {
                 processSectionJson(userId, fileContent);
+            } else if (currentState == BotState.AWAITING_BACKUP_FILE) {
+                handleBackupFileUpload(userId, fileContent);
             } else {
                 sendMessage(userId, MSG_UNEXPECTED_FILE, createCancelKeyboard());
             }
@@ -636,5 +874,38 @@ public class AdminHandler extends BaseHandler {
 
     private BotKeyboard createAdminCancelKeyboardWithBackToSections() {
         return BotKeyboard.of(BotButton.callback(BUTTON_CANCEL, CALLBACK_ADMIN_BACK_TO_SECTIONS));
+    }
+
+    private boolean isZipFile(byte[] content) {
+        return content.length > 4 &&
+                content[0] == 0x50 && content[1] == 0x4B &&
+                content[2] == 0x03 && content[3] == 0x04;
+    }
+
+    private void processCourseZip(Long userId, byte[] fileContent) {
+        Integer progressMessageId = sendProgressMessage(userId);
+        try {
+            InputStream inputStream = new ByteArrayInputStream(fileContent);
+            Course course = zipCourseImportService.importCourseFromZip(inputStream);
+            List<PendingImage> pending = courseImportService.collectCourseImages(course.getId());
+            if (!pending.isEmpty()) {
+                UserContext context = sessionService.getCurrentContext(userId);
+                context.setPendingImages(pending);
+                context.setCurrentImageIndex(0);
+                sessionService.updateSession(userId, BotState.AWAITING_IMAGE, context);
+                requestNextImage(userId, null);
+            } else {
+                sendMessage(userId, "Успешно. Курс \"" + course.getTitle() + "\" добавлен. Изображения не требуются.", createBackToMainKeyboard());
+                sessionService.updateSessionState(userId, BotState.MAIN_MENU);
+            }
+        } catch (InvalidJsonException e) {
+            log.warn("JSON validation error: {}", e.getMessage());
+            sendMessage(userId, e.getMessage(), createRetryOrCancelKeyboard());
+        } catch (Exception e) {
+            log.error("Error importing course from ZIP", e);
+            sendMessage(userId, "Ошибка импорта курса из ZIP: " + e.getMessage(), createRetryOrCancelKeyboard());
+        } finally {
+            if (progressMessageId != null) deleteMessage(userId, progressMessageId);
+        }
     }
 }

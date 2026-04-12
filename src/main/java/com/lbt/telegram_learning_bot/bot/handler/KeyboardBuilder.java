@@ -38,9 +38,10 @@ public class KeyboardBuilder {
                 : Collections.emptyMap();
 
         BotKeyboard keyboard = new BotKeyboard();
+        int index = result.getCurrentPage() * result.getItems().size();
         for (Course course : result.getItems()) {
             String courseEmoji = courseStatuses.getOrDefault(course.getId(), EMOJI_NOT_STARTED);
-            String title = courseEmoji + " " + course.getTitle();
+            String title = courseEmoji + " " + (++index) + ". " + course.getTitle();
 
             if (SOURCE_MY_COURSES.equals(source)) {
                 String timeStr = navigationService.getLastAccessedTime(userId, course.getId());
@@ -53,7 +54,6 @@ public class KeyboardBuilder {
                 String testEmoji = courseTestStatuses.getOrDefault(course.getId(), EMOJI_NOT_STARTED);
                 String testButtonText = testEmoji + " Тест";
 
-                // ← ИЗМЕНЕНИЕ: теперь PDF-кнопка передаёт page и source
                 keyboard.addRow(
                         BotButton.callback(title, selectAction + ":" + course.getId()),
                         BotButton.callback(testButtonText, "test_course:" + course.getId()),
@@ -77,7 +77,7 @@ public class KeyboardBuilder {
                                                 Long courseId, boolean withTest, String selectAction) {
         BotKeyboard keyboard = new BotKeyboard();
         for (Section section : result.getItems()) {
-            int sectionNumber = section.getOrderIndex() + 1; // нумерация с 1
+            int sectionNumber = section.getOrderIndex() + 1;
             String sectionEmoji = navigationService.getSectionStatusEmoji(userId, section.getId());
             String title = sectionEmoji + " " + sectionNumber + ". " + section.getTitle();
 
@@ -103,13 +103,14 @@ public class KeyboardBuilder {
 
     /**
      * Строит клавиатуру для списка тем.
+     * @param sectionNumber номер раздела (передаётся из CourseNavigationHandler)
      */
     public BotKeyboard buildTopicsKeyboardBot(PaginationResult<Topic> result, Long userId,
                                               Long sectionId, int sectionNumber,
                                               boolean withTest, String selectAction) {
         BotKeyboard keyboard = new BotKeyboard();
         for (Topic topic : result.getItems()) {
-            int topicNumber = topic.getOrderIndex() + 1; // нумерация тем внутри раздела с 1
+            int topicNumber = topic.getOrderIndex() + 1;
             String topicEmoji = navigationService.getTopicStatusEmoji(userId, topic.getId());
             String title = topicEmoji + " " + sectionNumber + "." + topicNumber + " " + topic.getTitle();
 

@@ -20,7 +20,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class VkMessageSender implements MessageSender {
 
     private final VkHttpClient vkHttpClient;
-    private final ObjectMapper objectMapper; // внедряем Spring-бин
+    private final ObjectMapper objectMapper;
 
     // Хранилище последних ID сообщений, отправленных ботом для каждого пользователя
     private final Map<Long, Integer> lastBotMessageIds = new ConcurrentHashMap<>();
@@ -129,6 +129,8 @@ public class VkMessageSender implements MessageSender {
             return null;
         }
     }
+
+    // ================== Вспомогательные методы ==================
 
     private String toVkKeyboard(BotKeyboard keyboard) {
         if (keyboard == null || keyboard.getRows().isEmpty()) return null;

@@ -9,10 +9,10 @@ import com.lbt.telegram_learning_bot.platform.MessageSender;
 import com.lbt.telegram_learning_bot.platform.Platform;
 import com.lbt.telegram_learning_bot.repository.AdminUserRepository;
 import com.lbt.telegram_learning_bot.service.*;
+import com.lbt.telegram_learning_bot.service.cloud.CloudStorageFacade;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.beans.Transient;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -34,8 +34,9 @@ public class CourseNavigationHandler extends BaseHandler {
                                    KeyboardBuilder keyboardBuilder,
                                    UserSettingsService userSettingsService,
                                    MaterialPdfGenerator materialPdfGenerator,
-                                   CloudStorageFacade cloudStorageFacade) {
-        super(messageSender, sessionService, navigationService, adminUserRepository, userSettingsService);
+                                   CloudStorageFacade cloudStorageFacade,
+                                   MaintenanceModeService maintenanceModeService) {
+        super(messageSender, sessionService, navigationService, adminUserRepository, userSettingsService, maintenanceModeService);
         this.keyboardBuilder = keyboardBuilder;
         this.userSettingsService = userSettingsService;
         this.materialPdfGenerator = materialPdfGenerator;

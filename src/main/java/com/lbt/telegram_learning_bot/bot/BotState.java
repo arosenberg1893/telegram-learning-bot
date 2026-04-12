@@ -30,5 +30,6 @@ public enum BotState {
     AWAITING_IMAGES,
     AWAITING_LINK_CODE,
     AWAITING_PAGE_SIZE_INPUT,
-    AWAITING_SECTION_JSON// ожидание ввода числа для размера страницы
+    AWAITING_SECTION_JSON,// ожидание ввода числа для размера страницы
+    AWAITING_BACKUP_FILE   // ожидание загрузки файла резервной копии от администратора
 }

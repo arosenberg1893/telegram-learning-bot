@@ -5,6 +5,7 @@ import com.lbt.telegram_learning_bot.platform.BotButton;
 import com.lbt.telegram_learning_bot.platform.BotKeyboard;
 import com.lbt.telegram_learning_bot.platform.MessageSender;
 import com.lbt.telegram_learning_bot.repository.AdminUserRepository;
+import com.lbt.telegram_learning_bot.service.MaintenanceModeService;
 import com.lbt.telegram_learning_bot.service.NavigationService;
 import com.lbt.telegram_learning_bot.service.UserSessionService;
 import com.lbt.telegram_learning_bot.service.UserSettingsService;
@@ -26,68 +27,106 @@ public abstract class BaseHandler {
     protected final NavigationService navigationService;
     protected final AdminUserRepository adminUserRepository;
     protected final UserSettingsService userSettingsService;
+    protected final MaintenanceModeService maintenanceModeService;
 
     public BaseHandler(MessageSender messageSender,
                        UserSessionService sessionService,
                        NavigationService navigationService,
                        AdminUserRepository adminUserRepository,
-                       UserSettingsService userSettingsService) {
+                       UserSettingsService userSettingsService,
+                       MaintenanceModeService maintenanceModeService) {
         this.messageSender = messageSender;
         this.sessionService = sessionService;
         this.navigationService = navigationService;
         this.adminUserRepository = adminUserRepository;
         this.userSettingsService = userSettingsService;
+        this.maintenanceModeService = maintenanceModeService;
     }
-    private long getEffectiveUserId(long userId) {
+
+    protected long getEffectiveUserId(long userId) {
         UserContext ctx = sessionService.getCurrentContext(userId);
         Long platformId = ctx.getCurrentPlatformUserId();
-        return platformId != null ? platformId : userId;
+        long effective = platformId != null ? platformId : userId;
+        log.debug("getEffectiveUserId: userId={}, platformId={}, effective={}", userId, platformId, effective);
+        return effective;
     }
 
+    /**
+     * Проверяет, заблокирован ли пользователь из-за режима обслуживания.
+     * Администраторы не блокируются.
+     */
+    protected boolean isMaintenanceBlocked(Long userId) {
+        return maintenanceModeService.isMaintenance() && !isAdmin(userId);
+    }
 
-    // Методы отправки сообщений, переделанные на messageSender
+    /**
+     * Отправляет сообщение о техническом обслуживании.
+     */
+    protected void sendMaintenanceMessage(long effectiveUserId) {
+        String maintenanceText = "🔧 Бот временно недоступен. Ведутся технические работы. Пожалуйста, зайдите позже.";
+        messageSender.sendText(effectiveUserId, maintenanceText);
+    }
+
+    // ================== Методы отправки сообщений с проверкой режима обслуживания ==================
 
     protected void sendMessage(Long userId, String text) {
+        if (isMaintenanceBlocked(userId)) {
+            sendMaintenanceMessage(getEffectiveUserId(userId));
+            return;
+        }
         messageSender.sendText(getEffectiveUserId(userId), text);
     }
 
     protected void sendMessage(Long userId, String text, BotKeyboard keyboard) {
+        if (isMaintenanceBlocked(userId)) {
+            sendMaintenanceMessage(getEffectiveUserId(userId));
+            return;
+        }
         messageSender.sendMenu(getEffectiveUserId(userId), text, keyboard);
     }
 
     protected void editMessage(Long userId, Integer messageId, String text) {
+        if (isMaintenanceBlocked(userId)) return;
         messageSender.editMenu(getEffectiveUserId(userId), messageId, text, null);
     }
 
     protected void editMessage(Long userId, Integer messageId, String text, BotKeyboard keyboard) {
+        if (isMaintenanceBlocked(userId)) return;
         messageSender.editMenu(getEffectiveUserId(userId), messageId, text, keyboard);
     }
 
     protected void deleteMessage(Long userId, Integer messageId) {
+        if (isMaintenanceBlocked(userId)) return;
         if (messageId != null) {
             messageSender.deleteMessage(getEffectiveUserId(userId), messageId);
         }
     }
 
     protected void sendMediaGroup(Long userId, List<?> images) {
+        if (isMaintenanceBlocked(userId)) return;
         messageSender.sendImageGroup(getEffectiveUserId(userId), images);
     }
 
     protected void clearMediaMessages(Long userId) {
         // Очистка медиа-сообщений теперь управляется на стороне MessageSender,
-        // но для совместимости оставим пустой метод или перенесём логику в MessageSender.
+        // но для совместимости оставим пустой метод.
         // В текущей реализации MessageSender не хранит списки, поэтому этот метод можно оставить пустым,
         // а очистку делать через deleteMessage.
-        // Для простоты пока ничего не делаем.
     }
 
     protected Integer sendProgressMessage(Long userId) {
+        if (isMaintenanceBlocked(userId)) return null;
         return messageSender.sendProgress(getEffectiveUserId(userId));
     }
 
-    // Вспомогательные методы, не связанные с отправкой (форматирование, клавиатуры) остаются без изменений.
+    // ================== Вспомогательные методы, не связанные с отправкой ==================
 
     protected void sendMainMenu(Long userId, Integer messageId) {
+        if (isMaintenanceBlocked(userId)) {
+            sendMaintenanceMessage(getEffectiveUserId(userId));
+            return;
+        }
+
         String text = MSG_MAIN_MENU;
         BotKeyboard keyboard = new BotKeyboard()
                 .addRow(BotButton.callback(BUTTON_MY_COURSES, CALLBACK_MY_COURSES),
@@ -116,7 +155,8 @@ public abstract class BaseHandler {
         return adminUserRepository.existsByUserId(userId);
     }
 
-    // Вспомогательные методы (форматирование, клавиатуры) остаются как были
+    // ================== Клавиатуры ==================
+
     protected BotKeyboard createRetryOrCancelKeyboard() {
         return BotKeyboard.rows(
                 new BotButton[]{BotButton.callback(BUTTON_RETRY, CALLBACK_RETRY)},
@@ -149,6 +189,12 @@ public abstract class BaseHandler {
                 new BotButton[]{BotButton.callback(BUTTON_MAIN_MENU, CALLBACK_MAIN_MENU)}
         );
     }
+
+    protected BotKeyboard createAdminCancelKeyboardWithBackToTopics() {
+        return BotKeyboard.of(BotButton.callback(BUTTON_CANCEL, CALLBACK_ADMIN_BACK_TO_TOPICS));
+    }
+
+    // ================== Форматирование ==================
 
     protected String formatStudyTime(long seconds) {
         long hours = seconds / 3600;
@@ -184,9 +230,5 @@ public abstract class BaseHandler {
             long years = days / 365;
             return years + " " + (years == 1 ? "год" : "года") + " назад";
         }
-    }
-
-    protected BotKeyboard createAdminCancelKeyboardWithBackToTopics() {
-        return BotKeyboard.of(BotButton.callback(BUTTON_CANCEL, CALLBACK_ADMIN_BACK_TO_TOPICS));
     }
 }
