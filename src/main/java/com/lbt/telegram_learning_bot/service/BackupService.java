@@ -53,16 +53,30 @@ public class BackupService {
     private static final Pattern BACKUP_FILE_PATTERN = Pattern.compile("backup(?:_pre_restore)?_(\\d{4}-\\d{2}-\\d{2}_\\d{2}-\\d{2}-\\d{2})\\.dump");
 
     /**
-     * Создаёт дамп базы данных в формате pg_dump -Fc (сжатый, custom).
-     *
-     * @return массив байтов дампа
+     * Извлекает хост и порт из JDBC URL.
+     * Пример: jdbc:postgresql://host:5432/dbname -> host, 5432
      */
+    private String[] extractHostAndPort(String jdbcUrl) {
+        Pattern pattern = Pattern.compile("jdbc:postgresql://([^:/]+)(?::(\\d+))?/");
+        Matcher matcher = pattern.matcher(jdbcUrl);
+        if (matcher.find()) {
+            String host = matcher.group(1);
+            String port = matcher.group(2);
+            if (port == null) port = "5432";
+            return new String[]{host, port};
+        }
+        return new String[]{"localhost", "5432"};
+    }
+
     public byte[] createDump() throws IOException, InterruptedException {
         String dbName = extractDatabaseName(dbUrl);
-        log.info("Starting pg_dump for database: {}", dbName);
+        String[] hostPort = extractHostAndPort(dbUrl);
+        String host = hostPort[0];
+        String port = hostPort[1];
+        log.info("Starting pg_dump for database: {} at {}:{}", dbName, host, port);
 
         ProcessBuilder pb = new ProcessBuilder(
-                "pg_dump", "-h", "localhost", "-U", dbUser, "-d", dbName, "-Fc", "-O", "-x",
+                "pg_dump", "-h", host, "-p", port, "-U", dbUser, "-d", dbName, "-Fc", "-O", "-x",
                 "--exclude-extension=pg_trgm"
         );
         pb.environment().put("PGPASSWORD", dbPassword);
@@ -90,16 +104,10 @@ public class BackupService {
         return baos.toByteArray();
     }
 
-    /**
-     * Восстанавливает базу данных из дампа.
-     * Перед восстановлением автоматически создаёт резервную копию текущего состояния.
-     *
-     * @param dumpData массив байтов дампа
-     */
     public void restoreFromDump(byte[] dumpData) throws IOException, InterruptedException {
         log.info("Starting database restore from dump");
 
-        // 1. Создаём резервную копию перед восстановлением и загружаем во все облака
+        // 1. Создаём резервную копию перед восстановлением
         byte[] preRestoreBackup = createDump();
         String timestamp = LocalDateTime.now().format(DATE_FORMAT);
         String preRestoreFileName = BACKUP_PREFIX + "pre_restore_" + timestamp + BACKUP_SUFFIX;
@@ -116,15 +124,18 @@ public class BackupService {
             }
         } catch (Exception e) {
             log.error("Failed to upload pre-restore backup", e);
-            // не прерываем восстановление
         }
 
-        // 2. Восстанавливаем, используя специального пользователя
+        // 2. Восстанавливаем, используя специального пользователя (если задан) или обычного
         String effectiveUser = (superUser != null && !superUser.isBlank()) ? superUser : dbUser;
         String effectivePassword = (superUser != null && !superUser.isBlank()) ? superPassword : dbPassword;
         String dbName = extractDatabaseName(dbUrl);
+        String[] hostPort = extractHostAndPort(dbUrl);
+        String host = hostPort[0];
+        String port = hostPort[1];
+
         ProcessBuilder pb = new ProcessBuilder(
-                "pg_restore", "-h", "localhost", "-U", effectiveUser, "-d", dbName,
+                "pg_restore", "-h", host, "-p", port, "-U", effectiveUser, "-d", dbName,
                 "-c", "-O", "-x", "--if-exists"
         );
         pb.environment().put("PGPASSWORD", effectivePassword);
@@ -262,5 +273,12 @@ public class BackupService {
             }
         }
         return LocalDateTime.MIN;
+    }
+
+    private String extractHost(String jdbcUrl) {
+        // jdbc:postgresql://host:port/dbname
+        Pattern p = Pattern.compile("jdbc:postgresql://([^:/]+)(?::\\d+)?/");
+        Matcher m = p.matcher(jdbcUrl);
+        return m.find() ? m.group(1) : "localhost";
     }
 }
