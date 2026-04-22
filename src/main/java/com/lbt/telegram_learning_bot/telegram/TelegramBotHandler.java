@@ -155,9 +155,18 @@ public class TelegramBotHandler extends BaseHandler {
         }
     }
 
+    private void updatePlatformUserId(Long internalUserId, Long telegramUserId) {
+        UserContext ctx = sessionService.getCurrentContext(internalUserId);
+        if (!telegramUserId.equals(ctx.getCurrentPlatformUserId())) {
+            ctx.setCurrentPlatformUserId(telegramUserId);
+            sessionService.updateSessionContext(internalUserId, ctx);
+        }
+    }
+
     private void handleMessage(Message message) {
         Long externalUserId = message.from().id();
         Long userId = accountLinkService.resolveInternalUserId(Platform.TELEGRAM, externalUserId);
+        updatePlatformUserId(userId, externalUserId);
         synchronized (userLockService.getLock(userId)) {
             if (!rateLimiterService.isAllowed(userId)) {
                 sendMessage(userId, TOO_MANY_REQUEST);
@@ -235,6 +244,7 @@ public class TelegramBotHandler extends BaseHandler {
     private void handleCallback(CallbackQuery callbackQuery) {
         Long externalUserId = callbackQuery.from().id();
         Long userId = accountLinkService.resolveInternalUserId(Platform.TELEGRAM, externalUserId);
+        updatePlatformUserId(userId, externalUserId);
         synchronized (userLockService.getLock(userId)) {
             if (!rateLimiterService.isAllowed(userId)) {
                 try {
