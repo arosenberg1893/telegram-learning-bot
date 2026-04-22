@@ -79,7 +79,8 @@ public class VkBotHandler {
                         MaterialPdfGenerator materialPdfGenerator,
                         CloudStorageFacade cloudStorageFacade,
                         MaintenanceModeService maintenanceModeService,
-                        BackupService backupService) {
+                        BackupService backupService,
+                        ImageStorageService imageStorageService) {
         this.sender = sender;
         this.sessionService = sessionService;
         this.navigationService = navigationService;
@@ -94,14 +95,13 @@ public class VkBotHandler {
         this.maintenanceModeService = maintenanceModeService;
         this.backupService = backupService;
 
-
         this.adminHandler = new AdminHandler(sender, new VkFileDownloader(vkHttpClient),
                 sessionService, navigationService, courseImportService, zipCourseImportService,
                 courseRepository, keyboardBuilder, sectionRepository, topicRepository,
                 blockRepository, questionRepository, answerOptionRepository,
                 blockImageRepository, questionImageRepository, adminUserRepository,
                 userProgressRepository, userStudyTimeRepository, objectMapper, userSettingsService,
-                backupService, maintenanceModeService);
+                backupService, maintenanceModeService, imageStorageService);
         this.courseNavHandler = new CourseNavigationHandler(sender, sessionService, navigationService,
                 adminUserRepository, keyboardBuilder, userSettingsService, materialPdfGenerator, cloudStorageFacade,
                 maintenanceModeService);

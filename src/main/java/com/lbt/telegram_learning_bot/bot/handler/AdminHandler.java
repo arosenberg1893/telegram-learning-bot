@@ -19,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -46,6 +47,7 @@ public class AdminHandler extends BaseHandler {
     private final KeyboardBuilder keyboardBuilder;
     private final BackupService backupService;
     private final MaintenanceModeService maintenanceModeService;
+    private final ImageStorageService imageStorageService;
 
     public AdminHandler(MessageSender messageSender,
                         FileDownloader fileDownloader,
@@ -68,7 +70,8 @@ public class AdminHandler extends BaseHandler {
                         ObjectMapper objectMapper,
                         UserSettingsService userSettingsService,
                         BackupService backupService,
-                        MaintenanceModeService maintenanceModeService) {
+                        MaintenanceModeService maintenanceModeService,
+                        ImageStorageService imageStorageService) {
         super(messageSender, sessionService, navigationService, adminUserRepository, userSettingsService, maintenanceModeService);
         this.courseImportService = courseImportService;
         this.zipCourseImportService = zipCourseImportService;
@@ -88,6 +91,7 @@ public class AdminHandler extends BaseHandler {
         this.keyboardBuilder = keyboardBuilder;
         this.backupService = backupService;
         this.maintenanceModeService = maintenanceModeService;
+        this.imageStorageService = imageStorageService;
     }
 
     // ================== Обработка callback от диспетчера ==================
@@ -445,11 +449,8 @@ public class AdminHandler extends BaseHandler {
         }
 
         try {
-            // Сохраняем файл на диск во временную директорию
-            java.nio.file.Path dir = java.nio.file.Paths.get("images", entityType);
-            java.nio.file.Files.createDirectories(dir);
-            java.nio.file.Path filePath = dir.resolve(entityId + ".jpg");
-            java.nio.file.Files.write(filePath, imageBytes);
+            // Сохраняем файл через централизованный сервис хранения
+            Path filePath = imageStorageService.saveImage(entityType, entityId, imageBytes);
 
             // Обновляем путь к файлу в базе данных
             if (ENTITY_BLOCK.equals(entityType)) {
@@ -893,9 +894,7 @@ public class AdminHandler extends BaseHandler {
         showEditTopicsPage(userId, messageId, sectionId, page, pageSize);
     }
 
-    public boolean isAdmin(Long userId) {
-        return adminUserRepository.existsByUserId(userId);
-    }
+    // isAdmin унаследован из BaseHandler
 
     public void handleAdminCoursesPage(Long userId, Integer messageId, String source, int page, int pageSize) {
         showEditCoursesPage(userId, messageId, page, pageSize);

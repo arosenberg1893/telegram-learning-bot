@@ -150,7 +150,7 @@ public abstract class BaseHandler {
                 .addRow(BotButton.callback("⚙️ Настройки", CALLBACK_SETTINGS));
     }
 
-    protected boolean isAdmin(Long userId) {
+    public boolean isAdmin(Long userId) {
         return adminUserRepository.existsByUserId(userId);
     }
 

@@ -89,7 +89,8 @@ public class TelegramBotHandler extends BaseHandler {
                               MaterialPdfGenerator materialPdfGenerator,
                               CloudStorageFacade cloudStorageFacade,
                               MaintenanceModeService maintenanceModeService,
-                              BackupService backupService) {
+                              BackupService backupService,
+                              ImageStorageService imageStorageService) {
         super(new TelegramMessageSender(telegramBot), sessionService, navigationService, adminUserRepository, userSettingsService, maintenanceModeService);
         this.telegramBot = telegramBot;
         this.pdfExportService = pdfExportService;
@@ -114,7 +115,7 @@ public class TelegramBotHandler extends BaseHandler {
                 blockRepository, questionRepository, answerOptionRepository,
                 blockImageRepository, questionImageRepository, adminUserRepository,
                 userProgressRepository, userStudyTimeRepository, objectMapper, userSettingsService,
-                backupService, maintenanceModeService);
+                backupService, maintenanceModeService, imageStorageService);
         this.courseNavHandler = new CourseNavigationHandler(
                 messageSender, sessionService, navigationService, adminUserRepository,
                 keyboardBuilder, userSettingsService, materialPdfGenerator, cloudStorageFacade,
