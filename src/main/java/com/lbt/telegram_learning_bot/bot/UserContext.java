@@ -2,7 +2,6 @@ package com.lbt.telegram_learning_bot.bot;
 
 import lombok.Data;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**
