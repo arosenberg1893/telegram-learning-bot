@@ -10,24 +10,30 @@ import com.lbt.telegram_learning_bot.platform.Platform;
 import com.lbt.telegram_learning_bot.repository.*;
 import com.lbt.telegram_learning_bot.service.*;
 import com.lbt.telegram_learning_bot.service.cloud.CloudStorageFacade;
+import com.lbt.telegram_learning_bot.util.CallbackData;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
-import java.util.List;
 import java.util.Map;
 
 import static com.lbt.telegram_learning_bot.util.Constants.*;
 
+/**
+ * Обработчик событий ВКонтакте.
+ *
+ * <p>Наследует {@link BaseHandler} для получения общих вспомогательных методов:
+ * {@code isAdmin}, {@code sendMainMenu}, {@code sendMaintenanceMessage},
+ * {@code formatStudyTime} и клавиатурных фабрик.
+ * Платформо-специфичная логика (VK-отправка, VK-документы) остаётся здесь.</p>
+ */
 @Slf4j
 @Component
 @ConditionalOnProperty(name = "vk.bot.enabled", havingValue = "true")
-public class VkBotHandler {
+public class VkBotHandler extends BaseHandler {
 
     private final VkMessageSender sender;
-    private final UserSessionService sessionService;
-    private final NavigationService navigationService;
     private final RateLimiterService rateLimiterService;
     private final CourseNavigationHandler courseNavHandler;
     private final TestHandler testHandler;
@@ -37,11 +43,8 @@ public class VkBotHandler {
     private final PdfExportService pdfExportService;
     private final VkHttpClient vkHttpClient;
     private final UserLockService userLockService;
-    private final UserSettingsService userSettingsService;
     private final MaterialPdfGenerator materialPdfGenerator;
     private final CloudStorageFacade cloudStorageFacade;
-    private final MaintenanceModeService maintenanceModeService;
-    private final BackupService backupService;
 
     @Value("${vk.bot.page-size:3}")
     private int vkPageSize;
@@ -81,19 +84,18 @@ public class VkBotHandler {
                         MaintenanceModeService maintenanceModeService,
                         BackupService backupService,
                         ImageStorageService imageStorageService) {
+        // BaseHandler получает VkMessageSender как MessageSender (адаптер)
+        super(sender, sessionService, navigationService, adminUserRepository,
+                userSettingsService, maintenanceModeService);
+
         this.sender = sender;
-        this.sessionService = sessionService;
-        this.navigationService = navigationService;
         this.rateLimiterService = rateLimiterService;
         this.linkHandler = linkHandler;
         this.pdfExportService = pdfExportService;
         this.vkHttpClient = vkHttpClient;
         this.userLockService = userLockService;
-        this.userSettingsService = userSettingsService;
         this.materialPdfGenerator = materialPdfGenerator;
         this.cloudStorageFacade = cloudStorageFacade;
-        this.maintenanceModeService = maintenanceModeService;
-        this.backupService = backupService;
 
         this.adminHandler = new AdminHandler(sender, new VkFileDownloader(vkHttpClient),
                 sessionService, navigationService, courseImportService, zipCourseImportService,
@@ -103,8 +105,8 @@ public class VkBotHandler {
                 userProgressRepository, userStudyTimeRepository, objectMapper, userSettingsService,
                 backupService, maintenanceModeService, imageStorageService);
         this.courseNavHandler = new CourseNavigationHandler(sender, sessionService, navigationService,
-                adminUserRepository, keyboardBuilder, userSettingsService, materialPdfGenerator, cloudStorageFacade,
-                maintenanceModeService);
+                adminUserRepository, keyboardBuilder, userSettingsService, materialPdfGenerator,
+                cloudStorageFacade, maintenanceModeService);
         this.testHandler = new TestHandler(sender, sessionService, navigationService,
                 questionRepository, adminUserRepository, answerOptionRepository,
                 userProgressRepository, userMistakeRepository, userTestResultRepository,
@@ -113,43 +115,26 @@ public class VkBotHandler {
                 adminUserRepository, userSettingsService, progressCleanupService, maintenanceModeService);
     }
 
-    private boolean isMaintenanceBlocked(long internalUserId) {
-        return maintenanceModeService.isMaintenance() && !isAdmin(internalUserId);
-    }
+    // ================== Переопределение главного меню (добавляем кнопки администратора) ==================
 
-    private void sendMaintenanceMessage(long vkUserId) {
-        String text = "🔧 Бот временно недоступен. Ведутся технические работы. Пожалуйста, зайдите позже.";
-        sender.sendText(vkUserId, text);
-    }
-
-    private void sendMainMenu(long internalUserId, long vkUserId, Integer messageId) {
-        if (isMaintenanceBlocked(internalUserId)) {
-            sendMaintenanceMessage(vkUserId);
+    @Override
+    protected void sendMainMenu(Long userId, Integer messageId) {
+        if (isMaintenanceBlocked(userId)) {
+            sendMaintenanceMessage(getEffectiveUserId(userId));
             return;
         }
-        BotKeyboard keyboard = buildMainMenuKeyboard(internalUserId);
-        if (messageId != null) {
-            sender.editMenu(vkUserId, messageId, MSG_MAIN_MENU, keyboard);
-        } else {
-            sender.sendMenu(vkUserId, MSG_MAIN_MENU, keyboard);
-        }
-    }
-
-    private BotKeyboard buildMainMenuKeyboard(long internalUserId) {
-        BotKeyboard keyboard = new BotKeyboard()
-                .addRow(BotButton.callback(BUTTON_MY_COURSES, CALLBACK_MY_COURSES),
-                        BotButton.callback(BUTTON_ALL_COURSES, CALLBACK_ALL_COURSES))
-                .addRow(BotButton.callback(BUTTON_SEARCH, CALLBACK_SEARCH_COURSES),
-                        BotButton.callback(BUTTON_STATISTICS, CALLBACK_STATISTICS))
-                .addRow(BotButton.callback(BUTTON_MISTAKES, CALLBACK_MY_MISTAKES))
-                .addRow(BotButton.callback("⚙️ Настройки", CALLBACK_SETTINGS));
-        if (isAdmin(internalUserId)) {
+        BotKeyboard keyboard = buildBaseMainMenuKeyboard(userId);
+        if (isAdmin(userId)) {
             keyboard.addRow(
                     BotButton.callback("🎓 Adm Курсы", CALLBACK_ADMIN_COURSES_MENU),
                     BotButton.callback("💾 Adm БД", CALLBACK_ADMIN_DB)
             );
         }
-        return keyboard;
+        if (messageId != null) {
+            editMessage(userId, messageId, MSG_MAIN_MENU, keyboard);
+        } else {
+            sendMessage(userId, MSG_MAIN_MENU, keyboard);
+        }
     }
 
     // ================== Публичные методы ==================
@@ -163,7 +148,8 @@ public class VkBotHandler {
             }
             if (text == null) return;
             if (text.length() > maxMessageLength) {
-                sender.sendText(vkUserId, "⚠️ Сообщение слишком длинное. Пожалуйста, сократите до " + maxMessageLength + " символов.");
+                sender.sendText(vkUserId, "⚠️ Сообщение слишком длинное. Пожалуйста, сократите до "
+                        + maxMessageLength + " символов.");
                 return;
             }
             text = text.trim();
@@ -175,7 +161,7 @@ public class VkBotHandler {
                     context.setUserName("Пользователь");
                     sessionService.updateSessionContext(internalUserId, context);
                 }
-                sendMainMenu(internalUserId, vkUserId, null);
+                sendMainMenu(internalUserId, null);
                 sessionService.updateSessionState(internalUserId, BotState.MAIN_MENU);
                 return;
             }
@@ -199,15 +185,17 @@ public class VkBotHandler {
                     sessionService.updateSessionState(internalUserId, BotState.MAIN_MENU);
                     break;
                 case AWAITING_BACKUP_FILE:
-                    sender.sendText(vkUserId, "📁 Пожалуйста, отправьте файл резервной копии (дамп БД в формате .dump), а не текст.");
+                    sender.sendText(vkUserId, "📁 Пожалуйста, отправьте файл резервной копии"
+                            + " (дамп БД в формате .dump), а не текст.");
                     break;
                 default:
-                    sendMainMenu(internalUserId, vkUserId, null);
+                    sendMainMenu(internalUserId, null);
             }
         }
     }
 
-    public void handleDocument(long internalUserId, long vkUserId, Map<String, Object> fileRef, Integer messageId) {
+    public void handleDocument(long internalUserId, long vkUserId, Map<String, Object> fileRef,
+                               Integer messageId) {
         synchronized (userLockService.getLock(internalUserId)) {
             updatePlatformUserId(internalUserId, vkUserId);
             if (!rateLimiterService.isAllowed(internalUserId)) {
@@ -221,17 +209,18 @@ public class VkBotHandler {
         }
     }
 
-    public void handleCallback(long internalUserId, long vkUserId, String payload, Integer messageId, String eventId) {
-        log.info("VK callback received: internalUserId={}, payload={}, messageId={}", internalUserId, payload, messageId);
+    public void handleCallback(long internalUserId, long vkUserId, String payload,
+                               Integer messageId, String eventId) {
+        log.info("VK callback received: internalUserId={}, payload={}, messageId={}",
+                internalUserId, payload, messageId);
         synchronized (userLockService.getLock(internalUserId)) {
             updatePlatformUserId(internalUserId, vkUserId);
             if (!rateLimiterService.isAllowed(internalUserId)) {
                 sender.sendText(vkUserId, TOO_MANY_REQUEST);
                 return;
             }
-            log.debug("[VK] Callback internalUser={} payload={}", internalUserId, payload);
-            String[] parts = payload.split(":", 3);
-            String action = parts[0];
+            CallbackData cb = CallbackData.parse(payload);
+            String action = cb.action();
 
             switch (action) {
                 // навигация
@@ -245,22 +234,31 @@ public class VkBotHandler {
                     courseNavHandler.promptSearch(internalUserId, messageId);
                     break;
                 case CALLBACK_COURSES_PAGE:
-                    courseNavHandler.handleCoursesPage(internalUserId, messageId, parts[1], Integer.parseInt(parts[2]), vkPageSize);
+                    cb.getString(1).ifPresent(src ->
+                        cb.getInt(2).ifPresent(page ->
+                            courseNavHandler.handleCoursesPage(internalUserId, messageId, src, page, vkPageSize)));
                     break;
                 case CALLBACK_SELECT_COURSE:
-                    courseNavHandler.handleSelectCourse(internalUserId, messageId, Long.parseLong(parts[1]), vkPageSize);
+                    cb.getLong(1).ifPresent(id ->
+                        courseNavHandler.handleSelectCourse(internalUserId, messageId, id, vkPageSize));
                     break;
                 case CALLBACK_SELECT_SECTION:
-                    courseNavHandler.handleSelectSection(internalUserId, messageId, Long.parseLong(parts[1]), vkPageSize);
+                    cb.getLong(1).ifPresent(id ->
+                        courseNavHandler.handleSelectSection(internalUserId, messageId, id, vkPageSize));
                     break;
                 case CALLBACK_SELECT_TOPIC:
-                    courseNavHandler.handleSelectTopic(internalUserId, messageId, Long.parseLong(parts[1]));
+                    cb.getLong(1).ifPresent(id ->
+                        courseNavHandler.handleSelectTopic(internalUserId, messageId, id));
                     break;
                 case CALLBACK_SECTIONS_PAGE:
-                    courseNavHandler.handleSectionsPage(internalUserId, messageId, Long.parseLong(parts[1]), Integer.parseInt(parts[2]), vkPageSize);
+                    cb.getLong(1).ifPresent(courseId ->
+                        cb.getInt(2).ifPresent(page ->
+                            courseNavHandler.handleSectionsPage(internalUserId, messageId, courseId, page, vkPageSize)));
                     break;
                 case CALLBACK_TOPICS_PAGE:
-                    courseNavHandler.handleTopicsPage(internalUserId, messageId, Long.parseLong(parts[1]), Integer.parseInt(parts[2]), vkPageSize);
+                    cb.getLong(1).ifPresent(sectionId ->
+                        cb.getInt(2).ifPresent(page ->
+                            courseNavHandler.handleTopicsPage(internalUserId, messageId, sectionId, page, vkPageSize)));
                     break;
                 case CALLBACK_BACK_TO_COURSES:
                     BotState state = sessionService.getCurrentState(internalUserId);
@@ -289,7 +287,9 @@ public class VkBotHandler {
                     testHandler.handlePrevQuestion(internalUserId, messageId);
                     break;
                 case CALLBACK_ANSWER:
-                    testHandler.handleAnswer(internalUserId, messageId, Long.parseLong(parts[1]), Long.parseLong(parts[2]));
+                    cb.getLong(1).ifPresent(questionId ->
+                        cb.getLong(2).ifPresent(answerId ->
+                            testHandler.handleAnswer(internalUserId, messageId, questionId, answerId)));
                     break;
                 case CALLBACK_BACK_TO_BLOCK_TEXT:
                     testHandler.handleBackToBlockText(internalUserId, messageId);
@@ -297,13 +297,13 @@ public class VkBotHandler {
 
                 // тесты
                 case CALLBACK_TEST_TOPIC:
-                    testHandler.handleTestTopic(internalUserId, messageId, Long.parseLong(parts[1]));
+                    cb.getLong(1).ifPresent(id -> testHandler.handleTestTopic(internalUserId, messageId, id));
                     break;
                 case CALLBACK_TEST_SECTION:
-                    testHandler.handleTestSection(internalUserId, messageId, Long.parseLong(parts[1]));
+                    cb.getLong(1).ifPresent(id -> testHandler.handleTestSection(internalUserId, messageId, id));
                     break;
                 case CALLBACK_TEST_COURSE:
-                    testHandler.handleTestCourse(internalUserId, messageId, Long.parseLong(parts[1]));
+                    cb.getLong(1).ifPresent(id -> testHandler.handleTestCourse(internalUserId, messageId, id));
                     break;
 
                 // экспорт учебных материалов
@@ -354,7 +354,8 @@ public class VkBotHandler {
                     break;
                 case CALLBACK_RESTORE_SELECT:
                     if (!isAdmin(internalUserId)) return;
-                    adminHandler.restoreFromBackup(internalUserId, messageId, parts[1]);
+                    cb.getString(1).ifPresent(fileName ->
+                        adminHandler.restoreFromBackup(internalUserId, messageId, fileName));
                     break;
                 case CALLBACK_UPLOAD_BACKUP_FILE:
                     if (!isAdmin(internalUserId)) return;
@@ -365,13 +366,13 @@ public class VkBotHandler {
                     adminHandler.toggleMaintenanceMode(internalUserId, messageId);
                     break;
 
-                // статистика и ошибки
+                // статистика
                 case CALLBACK_STATISTICS:
-                    if (parts.length > 1 && CALLBACK_BACK.equals(parts[1])) {
-                        sender.deleteMessage(vkUserId, messageId);
-                        showStatistics(internalUserId, vkUserId, null);
+                    if (cb.getString(1).filter(CALLBACK_BACK::equals).isPresent()) {
+                        deleteMessage(internalUserId, messageId);
+                        showStatistics(internalUserId, null);
                     } else {
-                        showStatistics(internalUserId, vkUserId, messageId);
+                        showStatistics(internalUserId, messageId);
                     }
                     break;
                 case CALLBACK_EXPORT_PDF:
@@ -404,16 +405,11 @@ public class VkBotHandler {
                     settingsHandler.confirmResetProgress(internalUserId, messageId);
                     break;
                 case CALLBACK_SETTINGS_PAGESIZE_SET:
-                    if (parts.length >= 2) {
-                        int size = Integer.parseInt(parts[1]);
-                        settingsHandler.setPageSize(internalUserId, messageId, size);
-                    }
+                    cb.getInt(1).ifPresent(size -> settingsHandler.setPageSize(internalUserId, messageId, size));
                     break;
                 case CALLBACK_SETTINGS_QUESTIONS_SET:
-                    if (parts.length >= 2) {
-                        int count = Integer.parseInt(parts[1]);
-                        settingsHandler.setQuestionsPerBlock(internalUserId, messageId, count);
-                    }
+                    cb.getInt(1).ifPresent(count ->
+                        settingsHandler.setQuestionsPerBlock(internalUserId, messageId, count));
                     break;
                 case CALLBACK_SETTINGS_RESET_CONFIRM:
                     settingsHandler.resetProgress(internalUserId, messageId);
@@ -427,50 +423,44 @@ public class VkBotHandler {
                     linkHandler.generateCode(internalUserId, Platform.VK, sender);
                     break;
                 case CALLBACK_LINK_KEEP_TELEGRAM:
-                    if (parts.length >= 2) {
-                        linkHandler.resolveConflictKeepTelegram(internalUserId, parts[1], Platform.VK, vkUserId, sender);
-                    }
+                    cb.getString(1).ifPresent(code ->
+                        linkHandler.resolveConflictKeepTelegram(internalUserId, code, Platform.VK, vkUserId, sender));
                     break;
                 case CALLBACK_LINK_KEEP_VK:
-                    if (parts.length >= 2) {
-                        linkHandler.resolveConflictKeepVk(internalUserId, parts[1], Platform.VK, vkUserId, sender);
-                    }
+                    cb.getString(1).ifPresent(code ->
+                        linkHandler.resolveConflictKeepVk(internalUserId, code, Platform.VK, vkUserId, sender));
                     break;
                 case CALLBACK_LINK_MERGE:
-                    if (parts.length >= 2) {
-                        linkHandler.resolveConflictMerge(internalUserId, parts[1], Platform.VK, vkUserId, sender);
-                    }
+                    cb.getString(1).ifPresent(code ->
+                        linkHandler.resolveConflictMerge(internalUserId, code, Platform.VK, vkUserId, sender));
                     break;
                 case CALLBACK_LINK_MERGE_SETTINGS_TG:
-                    if (parts.length >= 2) {
-                        linkHandler.finalizeMergeWithTelegramSettings(internalUserId, parts[1], Platform.VK, vkUserId, sender);
-                    }
+                    cb.getString(1).ifPresent(code ->
+                        linkHandler.finalizeMergeWithTelegramSettings(internalUserId, code, Platform.VK, vkUserId, sender));
                     break;
                 case CALLBACK_LINK_MERGE_SETTINGS_VK:
-                    if (parts.length >= 2) {
-                        linkHandler.finalizeMergeWithVkSettings(internalUserId, parts[1], Platform.VK, vkUserId, sender);
-                    }
+                    cb.getString(1).ifPresent(code ->
+                        linkHandler.finalizeMergeWithVkSettings(internalUserId, code, Platform.VK, vkUserId, sender));
                     break;
 
                 // старые callback-и (для обратной совместимости)
                 case CALLBACK_LINK_RESOLVE_KEEP_THIS:
-                    if (parts.length >= 2) {
-                        linkHandler.resolveConflictKeepTelegram(internalUserId, parts[1], Platform.VK, vkUserId, sender);
-                    }
+                    cb.getString(1).ifPresent(code ->
+                        linkHandler.resolveConflictKeepTelegram(internalUserId, code, Platform.VK, vkUserId, sender));
                     break;
                 case CALLBACK_LINK_RESOLVE_KEEP_OTHER:
-                    if (parts.length >= 2) {
-                        linkHandler.resolveConflictKeepVk(internalUserId, parts[1], Platform.VK, vkUserId, sender);
-                    }
+                    cb.getString(1).ifPresent(code ->
+                        linkHandler.resolveConflictKeepVk(internalUserId, code, Platform.VK, vkUserId, sender));
                     break;
 
                 case CALLBACK_MAIN_MENU:
-                    sendMainMenu(internalUserId, vkUserId, messageId);
+                    sendMainMenu(internalUserId, messageId);
                     sessionService.updateSessionState(internalUserId, BotState.MAIN_MENU);
                     break;
                 case CALLBACK_BACK:
-                    handleBack(internalUserId, vkUserId, messageId);
+                    handleBack(internalUserId, messageId);
                     break;
+
                 default:
                     log.warn("[VK] Unknown callback action: {}", action);
             }
@@ -479,11 +469,12 @@ public class VkBotHandler {
 
     // ================== Приватные методы ==================
 
-    private void showStatistics(long internalUserId, long vkUserId, Integer messageId) {
+    private void showStatistics(long internalUserId, Integer messageId) {
         long totalCourses = navigationService.getTotalStartedCourses(internalUserId);
         long completedCourses = navigationService.getCompletedCoursesCount(internalUserId);
         String hardestCourse = navigationService.getHardestCourse(internalUserId);
         long totalSeconds = navigationService.getTotalStudySecondsForUser(internalUserId);
+
         StringBuilder stats = new StringBuilder();
         stats.append(STATS_TITLE).append("\n\n");
         stats.append(String.format(STATS_TOTAL_COURSES, totalCourses));
@@ -491,19 +482,19 @@ public class VkBotHandler {
         stats.append(String.format(STATS_HARDEST, hardestCourse));
         stats.append(String.format(STATS_TOTAL_TIME, formatStudyTime(totalSeconds)));
         stats.append(STATS_PROGRESS);
-        List<String> courseProgress = navigationService.getCoursesProgress(internalUserId);
+
+        java.util.List<String> courseProgress = navigationService.getCoursesProgress(internalUserId);
         if (courseProgress.isEmpty()) {
             stats.append(STATS_NO_DATA);
         } else {
             courseProgress.forEach(line -> stats.append(line).append("\n"));
         }
-        BotKeyboard keyboard = new BotKeyboard()
-                .addRow(BotButton.callback(BUTTON_EXPORT_PDF, CALLBACK_EXPORT_PDF),
-                        BotButton.callback(BUTTON_MAIN_MENU, CALLBACK_MAIN_MENU));
+
+        BotKeyboard keyboard = createStatisticsKeyboard();
         if (messageId != null) {
-            sender.editMenu(vkUserId, messageId, stats.toString(), keyboard);
+            editMessage(internalUserId, messageId, stats.toString(), keyboard);
         } else {
-            sender.sendMenu(vkUserId, stats.toString(), keyboard);
+            sendMessage(internalUserId, stats.toString(), keyboard);
         }
     }
 
@@ -513,47 +504,32 @@ public class VkBotHandler {
             UserContext context = sessionService.getCurrentContext(internalUserId);
             String userName = context.getUserName() != null ? context.getUserName() : DEFAULT_USER_NAME;
             String downloadUrl = pdfExportService.saveStatisticsPdf(internalUserId, userName);
-            String message = "📊 Ваша статистика готова. Скачайте PDF по ссылке:\n" + downloadUrl +
-                    "\n\nСсылка действительна 15 минут.";
-            BotKeyboard keyboard = BotKeyboard.of(BotButton.callback(BUTTON_MAIN_MENU, CALLBACK_MAIN_MENU));
-            sender.sendMenu(vkUserId, message, keyboard);
-            if (messageId != null) {
-                sender.deleteMessage(vkUserId, messageId);
-            }
+            String message = "📊 Ваша статистика готова. Скачайте PDF по ссылке:\n" + downloadUrl
+                    + "\n\nСсылка действительна 15 минут.";
+            sendMessage(internalUserId, message, BotKeyboard.of(BotButton.callback(BUTTON_MAIN_MENU, CALLBACK_MAIN_MENU)));
+            if (messageId != null) sender.deleteMessage(vkUserId, messageId);
         } catch (Exception e) {
             log.error("[VK] Error generating PDF for user {}", internalUserId, e);
-            sender.sendMenu(vkUserId, MSG_PDF_ERROR, BotKeyboard.backToMain());
+            sendMessage(internalUserId, MSG_PDF_ERROR, BotKeyboard.backToMain());
         } finally {
             if (progressId != null) sender.deleteMessage(vkUserId, progressId);
         }
     }
 
-    private void handleBack(long internalUserId, long vkUserId, Integer messageId) {
+    private void handleBack(long internalUserId, Integer messageId) {
         BotState state = sessionService.getCurrentState(internalUserId);
         switch (state) {
-            case MY_COURSES, ALL_COURSES, SEARCH_COURSES:
-                sendMainMenu(internalUserId, vkUserId, messageId);
+            case MY_COURSES, ALL_COURSES, SEARCH_COURSES -> {
+                sendMainMenu(internalUserId, messageId);
                 sessionService.updateSessionState(internalUserId, BotState.MAIN_MENU);
-                break;
-            case COURSE_SECTIONS, SECTION_TOPICS, TOPIC_LEARNING:
+            }
+            case COURSE_SECTIONS, SECTION_TOPICS, TOPIC_LEARNING ->
                 courseNavHandler.handleBackToCourses(internalUserId, messageId, vkPageSize);
-                break;
-            default:
-                sendMainMenu(internalUserId, vkUserId, messageId);
+            default -> {
+                sendMainMenu(internalUserId, messageId);
                 sessionService.updateSessionState(internalUserId, BotState.MAIN_MENU);
+            }
         }
-    }
-
-    private boolean isAdmin(long internalUserId) {
-        return adminHandler.isAdmin(internalUserId);
-    }
-
-    private String formatStudyTime(long seconds) {
-        long hours = seconds / 3600;
-        long minutes = (seconds % 3600) / 60;
-        return hours > 0
-                ? String.format(FORMAT_STUDY_TIME_HOURS, hours, minutes)
-                : String.format(FORMAT_STUDY_TIME_MINUTES, minutes);
     }
 
     private void updatePlatformUserId(long internalUserId, long vkUserId) {

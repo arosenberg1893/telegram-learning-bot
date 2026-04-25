@@ -103,6 +103,13 @@
 		</dependency>
 
 
+		<!-- Caffeine — кэш для UserLockService (TTL-eviction) -->
+		<dependency>
+			<groupId>com.github.ben-manes.caffeine</groupId>
+			<artifactId>caffeine</artifactId>
+			<!-- версия управляется spring-boot-starter-parent -->
+		</dependency>
+
 		<!-- Flyway для управления миграциями БД -->
 		<dependency>
 			<groupId>org.flywaydb</groupId>

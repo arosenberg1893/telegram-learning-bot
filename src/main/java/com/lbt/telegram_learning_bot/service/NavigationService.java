@@ -193,18 +193,50 @@ public class NavigationService {
         return getTopicLearningStatus(userId, topicId);
     }
 
+    /**
+     * Возвращает статус раздела через batch-загрузку данных по всем темам сразу.
+     * Вместо O(topics × 3 запросов) делает 3 запроса на весь раздел.
+     */
     public String getSectionStatusEmoji(Long userId, Long sectionId) {
         List<Topic> topics = topicRepository.findBySectionIdOrderByOrderIndexAsc(sectionId);
         if (topics.isEmpty()) return EMOJI_NOT_STARTED;
 
+        List<Long> topicIds = topics.stream().map(Topic::getId).toList();
+        return computeSectionStatusFromTopics(userId, topicIds, sectionId);
+    }
+
+    private String computeSectionStatusFromTopics(Long userId, List<Long> topicIds, Long sectionId) {
+        // Batch: количество вопросов по каждой теме
+        Map<Long, Long> questionCountByTopic = questionRepository.countByTopicIds(topicIds)
+                .stream().collect(Collectors.toMap(arr -> (Long) arr[0], arr -> (Long) arr[1]));
+
+        // Batch: весь прогресс пользователя по этим темам за один запрос
+        List<UserProgress> allProgress = userProgressRepository
+                .findByUserIdAndTopicIdsAndMode(userId, topicIds, MODE_LEARNING);
+
+        // Группируем прогресс по теме → вопросу, оставляя только последний
+        Map<Long, Map<Long, UserProgress>> latestByTopicAndQuestion = new HashMap<>();
+        for (UserProgress p : allProgress) {
+            Long topicId = p.getQuestion().getBlock().getTopic().getId();
+            Long qid = p.getQuestion().getId();
+            latestByTopicAndQuestion
+                    .computeIfAbsent(topicId, k -> new HashMap<>())
+                    .merge(qid, p, (existing, newer) ->
+                            newer.getCompletedAt().isAfter(existing.getCompletedAt()) ? newer : existing);
+        }
+
         boolean anyLearning = false;
         boolean allTopicsGreen = true;
 
-        for (Topic topic : topics) {
-            if (questionRepository.countByTopicId(topic.getId()) == 0) continue;
-            String status = getTopicLearningStatus(userId, topic.getId());
-            if (!EMOJI_NOT_STARTED.equals(status)) anyLearning = true;
-            if (!EMOJI_COMPLETED.equals(status)) allTopicsGreen = false;
+        for (Long topicId : topicIds) {
+            long total = questionCountByTopic.getOrDefault(topicId, 0L);
+            if (total == 0) continue;
+
+            Map<Long, UserProgress> progressMap = latestByTopicAndQuestion.getOrDefault(topicId, Map.of());
+            long correct = progressMap.values().stream().filter(UserProgress::getAnswerResult).count();
+
+            if (!progressMap.isEmpty()) anyLearning = true;
+            if (correct < total) allTopicsGreen = false;
         }
 
         String testStatus = getSectionTestStatus(userId, sectionId);
@@ -213,26 +245,54 @@ public class NavigationService {
         return EMOJI_IN_PROGRESS;
     }
 
+    /**
+     * Возвращает статус курса через batch-загрузку данных по всем темам курса сразу.
+     * Вместо O(sections × topics × 3 запросов) делает ~5 запросов на весь курс.
+     */
     public String getCourseStatusEmoji(Long userId, Long courseId) {
         List<Section> sections = sectionRepository.findByCourseIdOrderByOrderIndexAsc(courseId);
         if (sections.isEmpty()) return EMOJI_NOT_STARTED;
 
+        List<Long> sectionIds = sections.stream().map(Section::getId).toList();
+
+        // Один запрос за все темы курса вместо N запросов по разделу
+        List<Long> allTopicIds = topicRepository.findBySectionIds(sectionIds)
+                .stream().map(Topic::getId).toList();
+        if (allTopicIds.isEmpty()) return EMOJI_NOT_STARTED;
+
+        Map<Long, Long> questionCountByTopic = questionRepository.countByTopicIds(allTopicIds)
+                .stream().collect(Collectors.toMap(arr -> (Long) arr[0], arr -> (Long) arr[1]));
+
+        List<UserProgress> allProgress = userProgressRepository
+                .findByUserIdAndTopicIdsAndMode(userId, allTopicIds, MODE_LEARNING);
+
+        Map<Long, Map<Long, UserProgress>> latestByTopicAndQuestion = new HashMap<>();
+        for (UserProgress p : allProgress) {
+            Long topicId = p.getQuestion().getBlock().getTopic().getId();
+            Long qid = p.getQuestion().getId();
+            latestByTopicAndQuestion
+                    .computeIfAbsent(topicId, k -> new HashMap<>())
+                    .merge(qid, p, (existing, newer) ->
+                            newer.getCompletedAt().isAfter(existing.getCompletedAt()) ? newer : existing);
+        }
+
         boolean anyLearning = false;
-        boolean allSectionsGreen = true;
+        boolean allTopicsGreen = true;
 
-        for (Section section : sections) {
-            boolean hasQuestions = topicRepository.findBySectionIdOrderByOrderIndexAsc(section.getId())
-                    .stream().anyMatch(t -> questionRepository.countByTopicId(t.getId()) > 0);
-            if (!hasQuestions) continue;
+        for (Long topicId : allTopicIds) {
+            long total = questionCountByTopic.getOrDefault(topicId, 0L);
+            if (total == 0) continue;
 
-            String status = getSectionStatusEmoji(userId, section.getId());
-            if (!EMOJI_NOT_STARTED.equals(status)) anyLearning = true;
-            if (!EMOJI_COMPLETED.equals(status)) allSectionsGreen = false;
+            Map<Long, UserProgress> progressMap = latestByTopicAndQuestion.getOrDefault(topicId, Map.of());
+            long correct = progressMap.values().stream().filter(UserProgress::getAnswerResult).count();
+
+            if (!progressMap.isEmpty()) anyLearning = true;
+            if (correct < total) allTopicsGreen = false;
         }
 
         String courseTestStatus = getCourseTestStatus(userId, courseId);
         if (!anyLearning && EMOJI_NOT_STARTED.equals(courseTestStatus)) return EMOJI_NOT_STARTED;
-        if (allSectionsGreen && EMOJI_COMPLETED.equals(courseTestStatus)) return EMOJI_COMPLETED;
+        if (allTopicsGreen && EMOJI_COMPLETED.equals(courseTestStatus)) return EMOJI_COMPLETED;
         return EMOJI_IN_PROGRESS;
     }
 
@@ -487,29 +547,74 @@ public class NavigationService {
 
     // ================== Тесты и случайные вопросы ==================
 
+    /**
+     * Возвращает случайную выборку вопросов для теста по разделу.
+     * Batch-версия: загружает все блоки раздела одним запросом, затем все вопросы — вторым.
+     * Вместо O(topics × blocks × 2) запросов делает 3 запроса на весь раздел.
+     *
+     * @param sectionId       ID раздела
+     * @param questionsPerBlock максимум вопросов с каждого блока
+     */
     public List<Question> getRandomQuestionsForSection(Long sectionId, int questionsPerBlock) {
+        List<Topic> topics = topicRepository.findBySectionIdOrderByOrderIndexAsc(sectionId);
+        if (topics.isEmpty()) return List.of();
+
+        List<Long> topicIds = topics.stream().map(Topic::getId).toList();
+
+        // Один запрос вместо topics.size() × blocks.size() запросов
+        List<Block> allBlocks = blockRepository.findByTopicIds(topicIds);
+        List<Long> blockIds = allBlocks.stream().map(Block::getId).toList();
+
+        if (blockIds.isEmpty()) return List.of();
+
+        // Один запрос вместо blockIds.size() запросов
+        Map<Long, List<Question>> questionsByBlock = questionRepository
+                .findAllByBlockIdWithOptions(blockIds)
+                .stream()
+                .collect(Collectors.groupingBy(q -> q.getBlock().getId()));
+
         List<Question> result = new ArrayList<>();
-        for (Topic topic : topicRepository.findBySectionIdOrderByOrderIndexAsc(sectionId)) {
-            for (Block block : blockRepository.findByTopicIdOrderByOrderIndexAsc(topic.getId())) {
-                List<Question> qs = new ArrayList<>(questionRepository.findByBlockIdOrderByOrderIndexAsc(block.getId()));
-                if (!qs.isEmpty()) {
-                    Collections.shuffle(qs);
-                    result.addAll(qs.stream().limit(questionsPerBlock).toList());
-                }
+        for (Block block : allBlocks) {
+            List<Question> qs = new ArrayList<>(questionsByBlock.getOrDefault(block.getId(), List.of()));
+            if (!qs.isEmpty()) {
+                Collections.shuffle(qs);
+                result.addAll(qs.stream().limit(questionsPerBlock).toList());
             }
         }
         return result;
     }
 
+    /**
+     * Возвращает случайную выборку вопросов для теста по курсу.
+     * Batch-версия: загружает все темы, блоки, вопросы курса тремя запросами.
+     *
+     * @param courseId         ID курса
+     * @param questionsPerTopic максимум вопросов с каждой темы
+     */
     public List<Question> getRandomQuestionsForCourse(Long courseId, int questionsPerTopic) {
+        List<Section> sections = sectionRepository.findByCourseIdOrderByOrderIndexAsc(courseId);
+        if (sections.isEmpty()) return List.of();
+
+        List<Long> sectionIds = sections.stream().map(Section::getId).toList();
+
+        // Один запрос за все темы курса
+        List<Topic> allTopics = topicRepository.findBySectionIds(sectionIds);
+        if (allTopics.isEmpty()) return List.of();
+
+        List<Long> topicIds = allTopics.stream().map(Topic::getId).toList();
+
+        // Один запрос за все вопросы курса с группировкой по теме
+        Map<Long, List<Question>> questionsByTopic = questionRepository
+                .findAllByTopicIds(topicIds)
+                .stream()
+                .collect(Collectors.groupingBy(q -> q.getBlock().getTopic().getId()));
+
         List<Question> result = new ArrayList<>();
-        for (Section section : sectionRepository.findByCourseIdOrderByOrderIndexAsc(courseId)) {
-            for (Topic topic : topicRepository.findBySectionIdOrderByOrderIndexAsc(section.getId())) {
-                List<Question> qs = new ArrayList<>(getAllQuestionsForTopic(topic.getId()));
-                if (!qs.isEmpty()) {
-                    Collections.shuffle(qs);
-                    result.addAll(qs.stream().limit(questionsPerTopic).toList());
-                }
+        for (Topic topic : allTopics) {
+            List<Question> qs = new ArrayList<>(questionsByTopic.getOrDefault(topic.getId(), List.of()));
+            if (!qs.isEmpty()) {
+                Collections.shuffle(qs);
+                result.addAll(qs.stream().limit(questionsPerTopic).toList());
             }
         }
         return result;

@@ -60,6 +60,7 @@ public class TelegramBotHandler extends BaseHandler {
     }
 
     public TelegramBotHandler(TelegramBot telegramBot,
+                              TelegramMessageSender telegramMessageSender,
                               UserSessionService sessionService,
                               NavigationService navigationService,
                               AdminUserRepository adminUserRepository,
@@ -91,7 +92,9 @@ public class TelegramBotHandler extends BaseHandler {
                               MaintenanceModeService maintenanceModeService,
                               BackupService backupService,
                               ImageStorageService imageStorageService) {
-        super(new TelegramMessageSender(telegramBot), sessionService, navigationService, adminUserRepository, userSettingsService, maintenanceModeService);
+        // TelegramMessageSender приходит как Spring-бин, не создаётся вручную
+        super(telegramMessageSender, sessionService, navigationService,
+                adminUserRepository, userSettingsService, maintenanceModeService);
         this.telegramBot = telegramBot;
         this.pdfExportService = pdfExportService;
         this.rateLimiterService = rateLimiterService;

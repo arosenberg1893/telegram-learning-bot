@@ -52,15 +52,10 @@ class UserSessionServiceTest {
     }
 
     @Test
-    @DisplayName("возвращает существующую сессию")
-    void returnsExistingSession() {
+    @DisplayName("возвращает существующую сессию из БД")
+    void returnsExistingSessionFromDb() {
         Long userId = 200L;
-        UserSession existing = new UserSession();
-        existing.setUserId(userId);
-        existing.setState(BotState.AWAITING_SEARCH_QUERY.name());
-        existing.setContext("{}");
-        existing.setUpdatedAt(Instant.now());
-
+        UserSession existing = buildSession(userId, BotState.AWAITING_SEARCH_QUERY, "{}");
         when(sessionRepository.findById(userId)).thenReturn(Optional.of(existing));
 
         UserSession result = sessionService.getOrCreateSession(userId);
@@ -70,15 +65,42 @@ class UserSessionServiceTest {
     }
 
     @Test
+    @DisplayName("второй вызов getOrCreateSession возвращает кэшированную сессию без запроса в БД")
+    void secondCallUsesCache() {
+        Long userId = 300L;
+        UserSession existing = buildSession(userId, BotState.MAIN_MENU, "{}");
+        when(sessionRepository.findById(userId)).thenReturn(Optional.of(existing));
+
+        sessionService.getOrCreateSession(userId); // первый вызов — идёт в БД
+        sessionService.getOrCreateSession(userId); // второй — должен брать из кэша
+
+        // БД вызвана только один раз
+        verify(sessionRepository, times(1)).findById(userId);
+    }
+
+    @Test
+    @DisplayName("getCurrentState отдаёт кэшированное состояние без запроса в БД")
+    void getCurrentStateUsesCache() {
+        Long userId = 400L;
+        UserSession existing = buildSession(userId, BotState.AWAITING_SEARCH_QUERY, "{}");
+        when(sessionRepository.findById(userId)).thenReturn(Optional.of(existing));
+
+        // Прогреваем кэш
+        sessionService.getOrCreateSession(userId);
+
+        // Теперь getCurrentState не должна идти в БД
+        BotState state = sessionService.getCurrentState(userId);
+
+        assertThat(state).isEqualTo(BotState.AWAITING_SEARCH_QUERY);
+        // findById вызвана всего один раз (при прогреве кэша)
+        verify(sessionRepository, times(1)).findById(userId);
+    }
+
+    @Test
     @DisplayName("сериализует и десериализует UserContext без потерь")
     void serializesAndDeserializesContextCorrectly() {
-        Long userId = 300L;
-        UserSession session = new UserSession();
-        session.setUserId(userId);
-        session.setState(BotState.MAIN_MENU.name());
-        session.setContext("{}");
-        session.setUpdatedAt(Instant.now());
-
+        Long userId = 500L;
+        UserSession session = buildSession(userId, BotState.MAIN_MENU, "{}");
         when(sessionRepository.findById(userId)).thenReturn(Optional.of(session));
         when(sessionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
@@ -90,13 +112,12 @@ class UserSessionServiceTest {
 
         sessionService.updateSessionContext(userId, context);
 
-        // После обновления сессия должна содержать сериализованный контекст
         verify(sessionRepository).save(argThat(s -> {
             try {
                 UserContext restored = objectMapper.readValue(s.getContext(), UserContext.class);
-                return restored.getCurrentCourseId().equals(5L)
-                        && restored.getCurrentSectionId().equals(10L)
-                        && restored.getCurrentTopicId().equals(15L)
+                return Long.valueOf(5L).equals(restored.getCurrentCourseId())
+                        && Long.valueOf(10L).equals(restored.getCurrentSectionId())
+                        && Long.valueOf(15L).equals(restored.getCurrentTopicId())
                         && restored.getCurrentPage() == 2;
             } catch (Exception e) {
                 return false;
@@ -107,17 +128,37 @@ class UserSessionServiceTest {
     @Test
     @DisplayName("при неизвестном состоянии сбрасывает на MAIN_MENU")
     void resetsUnknownStateToMainMenu() {
-        Long userId = 400L;
-        UserSession session = new UserSession();
-        session.setUserId(userId);
+        Long userId = 600L;
+        UserSession session = buildSession(userId, null, "{}");
         session.setState("UNKNOWN_LEGACY_STATE");
-        session.setContext("{}");
-        session.setUpdatedAt(Instant.now());
-
         when(sessionRepository.findById(userId)).thenReturn(Optional.of(session));
 
         BotState state = sessionService.getCurrentState(userId);
 
         assertThat(state).isEqualTo(BotState.MAIN_MENU);
+    }
+
+    @Test
+    @DisplayName("evictFromCache инвалидирует кэш — следующий вызов идёт в БД")
+    void evictFromCacheForcesDbRead() {
+        Long userId = 700L;
+        UserSession existing = buildSession(userId, BotState.MAIN_MENU, "{}");
+        when(sessionRepository.findById(userId)).thenReturn(Optional.of(existing));
+
+        sessionService.getOrCreateSession(userId); // кэшируем
+        sessionService.evictFromCache(userId);     // инвалидируем
+        sessionService.getCurrentState(userId);    // должно идти в БД снова
+
+        verify(sessionRepository, times(2)).findById(userId);
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
+    private UserSession buildSession(Long userId, BotState state, String context) {
+        UserSession session = new UserSession();
+        session.setUserId(userId);
+        session.setState(state != null ? state.name() : BotState.MAIN_MENU.name());
+        session.setContext(context);
+        session.setUpdatedAt(Instant.now());
+        return session;
     }
 }

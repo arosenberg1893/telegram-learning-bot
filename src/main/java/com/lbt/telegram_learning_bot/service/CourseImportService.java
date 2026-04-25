@@ -8,15 +8,11 @@ import com.lbt.telegram_learning_bot.exception.InvalidJsonException;
 import com.lbt.telegram_learning_bot.repository.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -40,9 +36,7 @@ public class CourseImportService {
     private final QuestionImageRepository questionImageRepository;
     private final ObjectMapper objectMapper;
     private final UserProgressRepository userProgressRepository;
-
-    @Value("${course.images.storage.path:./course_images}")
-    private String imageStoragePath;
+    private final ImageStorageService imageStorageService;
 
     // ================== Импорт полного курса из JSON ==================
 
@@ -202,27 +196,35 @@ public class CourseImportService {
     private void createBlocksForTopic(Topic topic, List<BlockImportDto> blockDtos, Map<String, byte[]> imageFiles) {
         if (blockDtos == null) return;
 
-        // Для простоты: все изображения из папки темы собираем в плоский список,
-        // и при создании каждого изображения блока/вопроса берём следующий файл по порядку.
-        // Если в DTO для блока/вопроса есть описание, оно используется, но файл всё равно берётся по порядку.
-        // Если файлов меньше, чем описаний, оставляем пустые.
         List<Map.Entry<String, byte[]>> sortedImages = null;
         if (imageFiles != null && !imageFiles.isEmpty()) {
             sortedImages = new ArrayList<>(imageFiles.entrySet());
-            // Сортируем по имени файла для детерминированного порядка
             sortedImages.sort(Map.Entry.comparingByKey());
         }
 
+        // ── Шаг 1: создаём и сохраняем все блоки одним batch ──────────────────
+        List<Block> blocks = new ArrayList<>();
         int blockOrder = 0;
-        int imageIndex = 0;
         for (BlockImportDto blockDto : blockDtos) {
             Block block = new Block();
             block.setTopic(topic);
             block.setTextContent(blockDto.getText());
             block.setOrderIndex(blockOrder++);
-            block = blockRepository.save(block);
+            blocks.add(block);
+        }
+        blocks = blockRepository.saveAll(blocks); // один batch INSERT
 
-            // Изображения блока
+        // ── Шаг 2: для каждого сохранённого блока строим связанные сущности ──
+        List<BlockImage> allBlockImages = new ArrayList<>();
+        List<Question> allQuestions = new ArrayList<>();
+        // вопросы сохраняем первым проходом (нужен id для вариантов и изображений)
+        int imageIndex = 0;
+
+        for (int i = 0; i < blocks.size(); i++) {
+            Block block = blocks.get(i);
+            BlockImportDto blockDto = blockDtos.get(i);
+
+            // Изображения блока — накапливаем для batch
             if (blockDto.getImages() != null) {
                 int imgOrder = 0;
                 for (String imageDesc : blockDto.getImages()) {
@@ -230,20 +232,20 @@ public class CourseImportService {
                     blockImage.setBlock(block);
                     blockImage.setDescription(imageDesc);
                     blockImage.setOrderIndex(imgOrder++);
-                    // Если есть файлы из папки, привязываем следующий
                     if (sortedImages != null && imageIndex < sortedImages.size()) {
                         Map.Entry<String, byte[]> imgEntry = sortedImages.get(imageIndex);
-                        String savedPath = saveImageFile(imgEntry.getValue(), topic.getSection().getCourse().getId(), topic.getId(), imgEntry.getKey());
+                        String savedPath = saveImageFile(imgEntry.getValue(),
+                                topic.getSection().getCourse().getId(), topic.getId(), imgEntry.getKey());
                         blockImage.setFilePath(savedPath);
                         imageIndex++;
                     } else {
                         blockImage.setFilePath("");
                     }
-                    blockImageRepository.save(blockImage);
+                    allBlockImages.add(blockImage);
                 }
             }
 
-            // Вопросы блока
+            // Вопросы блока — накапливаем для batch
             if (blockDto.getQuestions() != null) {
                 int questionOrder = 0;
                 for (QuestionImportDto qDto : blockDto.getQuestions()) {
@@ -252,40 +254,74 @@ public class CourseImportService {
                     question.setText(qDto.getText());
                     question.setExplanation(qDto.getExplanation());
                     question.setOrderIndex(questionOrder++);
-                    question = questionRepository.save(question);
+                    allQuestions.add(question);
+                }
+            }
+        }
 
-                    // Варианты ответов
-                    int optOrder = 0;
-                    for (String optText : qDto.getOptions()) {
-                        AnswerOption opt = new AnswerOption();
-                        opt.setQuestion(question);
-                        opt.setText(optText);
-                        opt.setIsCorrect(optOrder == qDto.getCorrectIndex());
-                        opt.setOrderIndex(optOrder++);
-                        answerOptionRepository.save(opt);
-                    }
+        // Batch сохранение изображений блоков
+        if (!allBlockImages.isEmpty()) {
+            blockImageRepository.saveAll(allBlockImages);
+        }
 
-                    // Изображения вопроса
-                    if (qDto.getImages() != null) {
-                        int imgOrder = 0;
-                        for (String imgDesc : qDto.getImages()) {
-                            QuestionImage qi = new QuestionImage();
-                            qi.setQuestion(question);
-                            qi.setDescription(imgDesc);
-                            qi.setOrderIndex(imgOrder++);
-                            if (sortedImages != null && imageIndex < sortedImages.size()) {
-                                Map.Entry<String, byte[]> imgEntry = sortedImages.get(imageIndex);
-                                String savedPath = saveImageFile(imgEntry.getValue(), topic.getSection().getCourse().getId(), topic.getId(), imgEntry.getKey());
-                                qi.setFilePath(savedPath);
-                                imageIndex++;
-                            } else {
-                                qi.setFilePath("");
-                            }
-                            questionImageRepository.save(qi);
+        // Batch сохранение вопросов (нужны id для вариантов ответов)
+        if (allQuestions.isEmpty()) return;
+        allQuestions = questionRepository.saveAll(allQuestions);
+
+        // ── Шаг 3: варианты ответов и изображения вопросов ────────────────────
+        // Пересчитываем imageIndex для вопросов (imageIndex уже сдвинут блочными картинками)
+        List<AnswerOption> allOptions = new ArrayList<>();
+        List<QuestionImage> allQuestionImages = new ArrayList<>();
+
+        // Воссоздаём соответствие вопрос → dto (сохранённые вопросы в том же порядке)
+        int qGlobalIdx = 0;
+        for (int i = 0; i < blocks.size(); i++) {
+            BlockImportDto blockDto = blockDtos.get(i);
+            if (blockDto.getQuestions() == null) continue;
+
+            for (QuestionImportDto qDto : blockDto.getQuestions()) {
+                Question question = allQuestions.get(qGlobalIdx++);
+
+                // Варианты ответов
+                int optOrder = 0;
+                for (String optText : qDto.getOptions()) {
+                    AnswerOption opt = new AnswerOption();
+                    opt.setQuestion(question);
+                    opt.setText(optText);
+                    opt.setIsCorrect(optOrder == qDto.getCorrectIndex());
+                    opt.setOrderIndex(optOrder++);
+                    allOptions.add(opt);
+                }
+
+                // Изображения вопроса
+                if (qDto.getImages() != null) {
+                    int imgOrder = 0;
+                    for (String imgDesc : qDto.getImages()) {
+                        QuestionImage qi = new QuestionImage();
+                        qi.setQuestion(question);
+                        qi.setDescription(imgDesc);
+                        qi.setOrderIndex(imgOrder++);
+                        if (sortedImages != null && imageIndex < sortedImages.size()) {
+                            Map.Entry<String, byte[]> imgEntry = sortedImages.get(imageIndex);
+                            String savedPath = saveImageFile(imgEntry.getValue(),
+                                    topic.getSection().getCourse().getId(), topic.getId(), imgEntry.getKey());
+                            qi.setFilePath(savedPath);
+                            imageIndex++;
+                        } else {
+                            qi.setFilePath("");
                         }
+                        allQuestionImages.add(qi);
                     }
                 }
             }
+        }
+
+        // Batch сохранение вариантов ответов и изображений вопросов
+        if (!allOptions.isEmpty()) {
+            answerOptionRepository.saveAll(allOptions);
+        }
+        if (!allQuestionImages.isEmpty()) {
+            questionImageRepository.saveAll(allQuestionImages);
         }
     }
 
@@ -293,20 +329,13 @@ public class CourseImportService {
 
     private String saveImageFile(byte[] data, Long courseId, Long topicId, String originalFileName) {
         try {
-            Path courseDir = Paths.get(imageStoragePath, String.valueOf(courseId));
-            Path topicDir = courseDir.resolve(String.valueOf(topicId));
-            if (!Files.exists(topicDir)) {
-                Files.createDirectories(topicDir);
-            }
             // Генерируем уникальное имя, чтобы избежать коллизий
-            String ext = "";
-            if (originalFileName.contains(".")) {
-                ext = originalFileName.substring(originalFileName.lastIndexOf('.'));
-            }
+            String ext = originalFileName.contains(".")
+                    ? originalFileName.substring(originalFileName.lastIndexOf('.'))
+                    : "";
             String fileName = UUID.randomUUID() + ext;
-            Path targetPath = topicDir.resolve(fileName);
-            Files.write(targetPath, data);
-            return targetPath.toAbsolutePath().toString();
+            String subPath = courseId + "/" + topicId;
+            return imageStorageService.saveImage(subPath, fileName, data).toAbsolutePath().toString();
         } catch (Exception e) {
             log.error("Failed to save image for course {} topic {}", courseId, topicId, e);
             return "";

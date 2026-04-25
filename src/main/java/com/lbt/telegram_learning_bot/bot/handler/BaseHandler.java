@@ -63,8 +63,7 @@ public abstract class BaseHandler {
      * Отправляет сообщение о техническом обслуживании.
      */
     protected void sendMaintenanceMessage(long effectiveUserId) {
-        String maintenanceText = "🔧 Бот временно недоступен. Ведутся технические работы. Пожалуйста, зайдите позже.";
-        messageSender.sendText(effectiveUserId, maintenanceText);
+        messageSender.sendText(effectiveUserId, MSG_MAINTENANCE_MODE_ENABLED);
     }
 
     // ================== Методы отправки сообщений с проверкой режима обслуживания ==================

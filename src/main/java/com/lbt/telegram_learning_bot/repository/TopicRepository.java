@@ -17,6 +17,13 @@ public interface TopicRepository extends JpaRepository<Topic, Long> {
     Page<Topic> findBySectionId(Long sectionId, Pageable pageable);
 
     /**
+     * Пакетная загрузка тем для списка разделов.
+     * Используется в getCourseStatusEmoji и getRandomQuestionsForCourse вместо N вызовов по одному разделу.
+     */
+    @Query("SELECT t FROM Topic t WHERE t.section.id IN :sectionIds ORDER BY t.section.id, t.orderIndex")
+    List<Topic> findBySectionIds(@Param("sectionIds") List<Long> sectionIds);
+
+    /**
      * Загружает тему со всеми блоками (один уровень — безопасно от MultipleBagFetchException).
      */
     @Query("SELECT DISTINCT t FROM Topic t LEFT JOIN FETCH t.blocks b WHERE t.id = :topicId")

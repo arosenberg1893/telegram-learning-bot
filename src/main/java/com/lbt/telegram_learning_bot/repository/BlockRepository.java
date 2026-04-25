@@ -14,7 +14,16 @@ import java.util.Optional;
 @Repository
 public interface BlockRepository extends JpaRepository<Block, Long> {
     List<Block> findByTopicIdOrderByOrderIndexAsc(Long topicId);
+
     @Query("SELECT b FROM Block b LEFT JOIN FETCH b.images WHERE b.id = :id")
     Optional<Block> findByIdWithImages(@Param("id") Long id);
+
     Page<Block> findByTopicId(Long topicId, Pageable pageable);
+
+    /**
+     * Пакетная загрузка блоков для списка тем.
+     * Используется в getRandomQuestionsForSection/Course чтобы избежать N+1.
+     */
+    @Query("SELECT b FROM Block b WHERE b.topic.id IN :topicIds ORDER BY b.topic.id, b.orderIndex")
+    List<Block> findByTopicIds(@Param("topicIds") List<Long> topicIds);
 }

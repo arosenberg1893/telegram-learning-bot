@@ -3,7 +3,7 @@ package com.lbt.telegram_learning_bot.repository;
 import com.lbt.telegram_learning_bot.entity.Course;
 import com.lbt.telegram_learning_bot.entity.Section;
 import com.lbt.telegram_learning_bot.entity.UserProgress;
-import jakarta.transaction.Transactional;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -133,6 +133,13 @@ public interface UserProgressRepository extends JpaRepository<UserProgress, Long
      */
     @Query("SELECT p FROM UserProgress p WHERE p.userId = :userId AND p.question.block.topic.id = :topicId AND p.mode = :mode")
     List<UserProgress> findByUserIdAndTopicIdAndMode(@Param("userId") Long userId, @Param("topicId") Long topicId, @Param("mode") String mode);
+
+    /**
+     * Пакетная загрузка прогресса пользователя по НЕСКОЛЬКИМ темам в заданном режиме.
+     * Используется вместо N вызовов findByUserIdAndTopicIdAndMode в циклах.
+     */
+    @Query("SELECT p FROM UserProgress p WHERE p.userId = :userId AND p.question.block.topic.id IN :topicIds AND p.mode = :mode AND p.question IS NOT NULL")
+    List<UserProgress> findByUserIdAndTopicIdsAndMode(@Param("userId") Long userId, @Param("topicIds") List<Long> topicIds, @Param("mode") String mode);
 
     /**
      * Находит прогресс пользователя по разделу (без привязки к блоку или вопросу).

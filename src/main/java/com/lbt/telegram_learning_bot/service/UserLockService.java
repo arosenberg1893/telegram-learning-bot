@@ -1,41 +1,46 @@
 package com.lbt.telegram_learning_bot.service;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import org.springframework.stereotype.Service;
 
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.locks.ReentrantLock;
+import java.time.Duration;
 
 /**
- * Обеспечивает per-user блокировки для предотвращения гонки состояний.
+ * Обеспечивает per-user блокировки для предотвращения гонок состояний.
  *
- * <p>Использует отдельный {@code Object} в качестве монитора для каждого пользователя.
- * Объекты хранятся в {@link ConcurrentHashMap} и существуют всё время жизни приложения —
- * это приемлемо, так как число уникальных userId ограничено.</p>
+ * <p>Каждому пользователю выдаётся отдельный монитор-объект ({@code Object}).
+ * Мониторы автоматически вытесняются из кэша через {@value #TTL_MINUTES} минут
+ * после последнего обращения, что предотвращает бесконечный рост памяти
+ * при большом числе уникальных userId.</p>
  *
- * <p>Для более сложных сценариев (tryLock, таймауты) можно заменить Object на
- * {@link java.util.concurrent.locks.ReentrantLock} без изменения внешнего API.</p>
+ * <p>Важно: Caffeine вытесняет запись только при отсутствии внешних ссылок,
+ * поэтому монитор, удерживаемый потоком в {@code synchronized}-блоке,
+ * не будет удалён в середине критической секции.</p>
  */
 @Service
 public class UserLockService {
 
-    private final ConcurrentMap<Long, Object> locks = new ConcurrentHashMap<>();
+    private static final long TTL_MINUTES = 60;
+
+    private final Cache<Long, Object> locks = Caffeine.newBuilder()
+            .expireAfterAccess(Duration.ofMinutes(TTL_MINUTES))
+            .build();
 
     /**
      * Возвращает монитор-объект для данного пользователя.
-     * Объект создаётся при первом обращении и остаётся в памяти на всё время
-     * жизни приложения — это приемлемо, так как число уникальных userId ограничено.
+     * Объект создаётся при первом обращении и живёт в кэше пока активен.
      */
     public Object getLock(Long userId) {
-        return locks.computeIfAbsent(userId, k -> new Object());
+        return locks.get(userId, k -> new Object());
     }
 
     /**
-     * Удаляет блокировку для пользователя.
-     * Следует вызывать только после того, как все нити, ожидающие на этом мониторе,
-     * гарантированно завершили работу (например, после слияния аккаунтов).
+     * Принудительно удаляет монитор для пользователя из кэша.
+     * Вызывать только после того, как все потоки, ожидающие на мониторе,
+     * гарантированно завершили работу.
      */
     public void removeLock(Long userId) {
-        locks.remove(userId);
+        locks.invalidate(userId);
     }
 }
