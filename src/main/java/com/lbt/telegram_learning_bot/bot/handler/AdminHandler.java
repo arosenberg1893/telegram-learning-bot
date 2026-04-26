@@ -60,8 +60,7 @@ public class AdminHandler extends BaseHandler {
                 courseImportService, zipCourseImportService, courseRepository, keyboardBuilder,
                 sectionRepository, topicRepository, blockRepository, questionRepository,
                 answerOptionRepository, blockImageRepository, questionImageRepository,
-                adminUserRepository, userProgressRepository, userStudyTimeRepository,
-                objectMapper, userSettingsService, maintenanceModeService, imageStorageService);
+                adminUserRepository, objectMapper, userSettingsService, maintenanceModeService, imageStorageService);
 
         this.databaseHandler = new AdminDatabaseHandler(
                 messageSender, fileDownloader, sessionService, navigationService,

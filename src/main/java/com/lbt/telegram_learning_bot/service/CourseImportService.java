@@ -36,6 +36,7 @@ public class CourseImportService {
     private final QuestionImageRepository questionImageRepository;
     private final ObjectMapper objectMapper;
     private final UserProgressRepository userProgressRepository;
+    private final UserStudyTimeRepository userStudyTimeRepository;
     private final ImageStorageService imageStorageService;
 
     // ================== Импорт полного курса из JSON ==================
@@ -365,6 +366,22 @@ public class CourseImportService {
             }
         }
         return result;
+    }
+
+    // ================== Удаление курса ==================
+
+    /**
+     * Удаляет курс и весь связанный прогресс пользователей.
+     * Метод транзакционный — либо всё удаляется, либо ничего.
+     *
+     * <p>Вынесен из {@code AdminCourseHandler} в сервисный слой, чтобы
+     * {@code @Transactional} работал через Spring AOP, а не через {@code new}.</p>
+     */
+    @Transactional
+    public void deleteCourse(Long courseId) {
+        userStudyTimeRepository.deleteByCourseId(courseId);
+        userProgressRepository.deleteByCourseId(courseId);
+        courseRepository.deleteById(courseId);
     }
 
     // ================== Обновление названия/описания курса и раздела ==================

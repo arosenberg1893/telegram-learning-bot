@@ -4,10 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lbt.telegram_learning_bot.bot.BotState;
 import com.lbt.telegram_learning_bot.bot.PendingImage;
 import com.lbt.telegram_learning_bot.bot.UserContext;
-import com.lbt.telegram_learning_bot.dto.CourseNameDescDto;
-import com.lbt.telegram_learning_bot.dto.SectionImportDto;
-import com.lbt.telegram_learning_bot.dto.SectionNameDescDto;
-import com.lbt.telegram_learning_bot.dto.TopicImportDto;
+import com.lbt.telegram_learning_bot.dto.*;
 import com.lbt.telegram_learning_bot.entity.*;
 import com.lbt.telegram_learning_bot.exception.InvalidJsonException;
 import com.lbt.telegram_learning_bot.platform.BotButton;
@@ -20,6 +17,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.ByteArrayInputStream;
+import java.io.InputStream;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -49,8 +47,6 @@ public class AdminCourseHandler extends BaseHandler {
     private final AnswerOptionRepository answerOptionRepository;
     private final BlockImageRepository blockImageRepository;
     private final QuestionImageRepository questionImageRepository;
-    private final UserProgressRepository userProgressRepository;
-    private final UserStudyTimeRepository userStudyTimeRepository;
     private final ObjectMapper objectMapper;
     private final KeyboardBuilder keyboardBuilder;
     private final ImageStorageService imageStorageService;
@@ -71,8 +67,6 @@ public class AdminCourseHandler extends BaseHandler {
                               BlockImageRepository blockImageRepository,
                               QuestionImageRepository questionImageRepository,
                               AdminUserRepository adminUserRepository,
-                              UserProgressRepository userProgressRepository,
-                              UserStudyTimeRepository userStudyTimeRepository,
                               ObjectMapper objectMapper,
                               UserSettingsService userSettingsService,
                               MaintenanceModeService maintenanceModeService,
@@ -90,8 +84,6 @@ public class AdminCourseHandler extends BaseHandler {
         this.answerOptionRepository = answerOptionRepository;
         this.blockImageRepository = blockImageRepository;
         this.questionImageRepository = questionImageRepository;
-        this.userProgressRepository = userProgressRepository;
-        this.userStudyTimeRepository = userStudyTimeRepository;
         this.objectMapper = objectMapper;
         this.keyboardBuilder = keyboardBuilder;
         this.imageStorageService = imageStorageService;
@@ -235,12 +227,10 @@ public class AdminCourseHandler extends BaseHandler {
         sessionService.updateSessionState(userId, BotState.EDIT_TOPIC_JSON);
     }
 
-    @Transactional
     public void handleConfirmDeleteCourse(Long userId, Integer messageId, Long courseId) {
         try {
-            userStudyTimeRepository.deleteByCourseId(courseId);
-            userProgressRepository.deleteByCourseId(courseId);
-            courseRepository.deleteById(courseId);
+            // Транзакция управляется в CourseImportService через Spring AOP
+            courseImportService.deleteCourse(courseId);
             UserContext context = sessionService.getCurrentContext(userId);
             if (courseId.equals(context.getCurrentCourseId())) {
                 context.setCurrentCourseId(null);

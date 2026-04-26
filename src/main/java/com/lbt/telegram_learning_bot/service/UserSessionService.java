@@ -131,18 +131,6 @@ public class UserSessionService {
     public record SessionSnapshot(BotState state, UserContext context) {}
 
     @Transactional
-    /**
-     * Инвалидирует кэш сессии пользователя без удаления из БД.
-     * Следующий вызов {@link #getOrCreateSession} или {@link #getCurrentState}
-     * прочитает актуальные данные из репозитория.
-     *
-     * <p>Используется в тестах и в сценариях, когда нужно сбросить локальный кэш
-     * (например, после внешнего изменения сессии другим экземпляром приложения).</p>
-     */
-    public void evictFromCache(Long userId) {
-        sessionCache.remove(userId);
-    }
-
     public void clearSession(Long userId) {
         sessionCache.remove(userId);
         sessionRepository.deleteById(userId);

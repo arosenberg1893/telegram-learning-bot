@@ -1,6 +1,7 @@
 package com.lbt.telegram_learning_bot.vk;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lbt.telegram_learning_bot.bot.BotDispatcher;
 import com.lbt.telegram_learning_bot.bot.BotState;
 import com.lbt.telegram_learning_bot.bot.UserContext;
 import com.lbt.telegram_learning_bot.bot.handler.*;
@@ -34,6 +35,7 @@ import static com.lbt.telegram_learning_bot.util.Constants.*;
 public class VkBotHandler extends BaseHandler {
 
     private final VkMessageSender sender;
+    private final BotDispatcher dispatcher;
     private final RateLimiterService rateLimiterService;
     private final CourseNavigationHandler courseNavHandler;
     private final TestHandler testHandler;
@@ -113,6 +115,11 @@ public class VkBotHandler extends BaseHandler {
                 courseNavHandler, userSettingsService, maintenanceModeService);
         this.settingsHandler = new SettingsHandler(sender, sessionService, navigationService,
                 adminUserRepository, userSettingsService, progressCleanupService, maintenanceModeService);
+
+        // dispatcher создаётся последним — после инициализации всех хендлеров
+        this.dispatcher = new BotDispatcher(courseNavHandler, testHandler, adminHandler,
+                settingsHandler, linkHandler, sessionService, adminUserRepository,
+                userSettingsService, pdfExportService);
     }
 
     // ================== Переопределение главного меню (добавляем кнопки администратора) ==================
@@ -153,14 +160,11 @@ public class VkBotHandler extends BaseHandler {
                 return;
             }
             text = text.trim();
-            BotState currentState = sessionService.getCurrentState(internalUserId);
 
             if (text.startsWith("/start") || text.equals("начать")) {
                 UserContext context = sessionService.getCurrentContext(internalUserId);
-                if (context.getUserName() == null) {
-                    context.setUserName("Пользователь");
-                    sessionService.updateSessionContext(internalUserId, context);
-                }
+                if (context.getUserName() == null) context.setUserName("Пользователь");
+                sessionService.updateSessionContext(internalUserId, context);
                 sendMainMenu(internalUserId, null);
                 sessionService.updateSessionState(internalUserId, BotState.MAIN_MENU);
                 return;
@@ -168,29 +172,16 @@ public class VkBotHandler extends BaseHandler {
 
             if (text.startsWith("/link")) {
                 String[] parts = text.split("\\s+", 2);
+                BotDispatcher.PlatformContext ctx = buildPlatformContext(internalUserId, vkUserId);
                 if (parts.length == 2 && !parts[1].isBlank()) {
-                    linkHandler.applyCode(internalUserId, parts[1], Platform.VK, vkUserId, sender);
+                    ctx.handleLinkCode(internalUserId, parts[1]);
                 } else {
-                    linkHandler.generateCode(internalUserId, Platform.VK, sender);
+                    ctx.handleLinkGenerate(internalUserId);
                 }
                 return;
             }
 
-            switch (currentState) {
-                case AWAITING_SEARCH_QUERY:
-                    courseNavHandler.handleSearchQuery(internalUserId, text, vkPageSize);
-                    break;
-                case AWAITING_LINK_CODE:
-                    linkHandler.applyCode(internalUserId, text, Platform.VK, vkUserId, sender);
-                    sessionService.updateSessionState(internalUserId, BotState.MAIN_MENU);
-                    break;
-                case AWAITING_BACKUP_FILE:
-                    sender.sendText(vkUserId, "📁 Пожалуйста, отправьте файл резервной копии"
-                            + " (дамп БД в формате .dump), а не текст.");
-                    break;
-                default:
-                    sendMainMenu(internalUserId, null);
-            }
+            dispatcher.dispatchMessage(internalUserId, text, buildPlatformContext(internalUserId, vkUserId));
         }
     }
 
@@ -211,260 +202,61 @@ public class VkBotHandler extends BaseHandler {
 
     public void handleCallback(long internalUserId, long vkUserId, String payload,
                                Integer messageId, String eventId) {
-        log.info("VK callback received: internalUserId={}, payload={}, messageId={}",
-                internalUserId, payload, messageId);
+        log.info("VK callback received: internalUserId={}, payload={}", internalUserId, payload);
         synchronized (userLockService.getLock(internalUserId)) {
             updatePlatformUserId(internalUserId, vkUserId);
             if (!rateLimiterService.isAllowed(internalUserId)) {
                 sender.sendText(vkUserId, TOO_MANY_REQUEST);
                 return;
             }
-            CallbackData cb = CallbackData.parse(payload);
-            String action = cb.action();
-
-            switch (action) {
-                // навигация
-                case CALLBACK_MY_COURSES:
-                    courseNavHandler.handleMyCourses(internalUserId, messageId, 0, vkPageSize);
-                    break;
-                case CALLBACK_ALL_COURSES:
-                    courseNavHandler.handleAllCourses(internalUserId, messageId, 0, vkPageSize);
-                    break;
-                case CALLBACK_SEARCH_COURSES:
-                    courseNavHandler.promptSearch(internalUserId, messageId);
-                    break;
-                case CALLBACK_COURSES_PAGE:
-                    cb.getString(1).ifPresent(src ->
-                        cb.getInt(2).ifPresent(page ->
-                            courseNavHandler.handleCoursesPage(internalUserId, messageId, src, page, vkPageSize)));
-                    break;
-                case CALLBACK_SELECT_COURSE:
-                    cb.getLong(1).ifPresent(id ->
-                        courseNavHandler.handleSelectCourse(internalUserId, messageId, id, vkPageSize));
-                    break;
-                case CALLBACK_SELECT_SECTION:
-                    cb.getLong(1).ifPresent(id ->
-                        courseNavHandler.handleSelectSection(internalUserId, messageId, id, vkPageSize));
-                    break;
-                case CALLBACK_SELECT_TOPIC:
-                    cb.getLong(1).ifPresent(id ->
-                        courseNavHandler.handleSelectTopic(internalUserId, messageId, id));
-                    break;
-                case CALLBACK_SECTIONS_PAGE:
-                    cb.getLong(1).ifPresent(courseId ->
-                        cb.getInt(2).ifPresent(page ->
-                            courseNavHandler.handleSectionsPage(internalUserId, messageId, courseId, page, vkPageSize)));
-                    break;
-                case CALLBACK_TOPICS_PAGE:
-                    cb.getLong(1).ifPresent(sectionId ->
-                        cb.getInt(2).ifPresent(page ->
-                            courseNavHandler.handleTopicsPage(internalUserId, messageId, sectionId, page, vkPageSize)));
-                    break;
-                case CALLBACK_BACK_TO_COURSES:
-                    BotState state = sessionService.getCurrentState(internalUserId);
-                    if (state.isAdminEditState()) {
-                        adminHandler.handleBackToCoursesFromEdit(internalUserId, messageId, vkPageSize);
-                    } else {
-                        courseNavHandler.handleBackToCourses(internalUserId, messageId, vkPageSize);
-                    }
-                    break;
-                case CALLBACK_BACK_TO_SECTIONS:
-                    courseNavHandler.handleBackToSections(internalUserId, messageId, vkPageSize);
-                    break;
-                case CALLBACK_BACK_TO_TOPICS:
-                    courseNavHandler.handleBackToTopics(internalUserId, messageId, vkPageSize);
-                    break;
-                case CALLBACK_NEXT_BLOCK:
-                    courseNavHandler.handleNextBlock(internalUserId, messageId);
-                    break;
-                case CALLBACK_PREV_BLOCK:
-                    courseNavHandler.handlePrevBlock(internalUserId, messageId);
-                    break;
-                case CALLBACK_NEXT_QUESTION:
-                    testHandler.handleNextQuestion(internalUserId, messageId);
-                    break;
-                case CALLBACK_PREV_QUESTION:
-                    testHandler.handlePrevQuestion(internalUserId, messageId);
-                    break;
-                case CALLBACK_ANSWER:
-                    cb.getLong(1).ifPresent(questionId ->
-                        cb.getLong(2).ifPresent(answerId ->
-                            testHandler.handleAnswer(internalUserId, messageId, questionId, answerId)));
-                    break;
-                case CALLBACK_BACK_TO_BLOCK_TEXT:
-                    testHandler.handleBackToBlockText(internalUserId, messageId);
-                    break;
-
-                // тесты
-                case CALLBACK_TEST_TOPIC:
-                    cb.getLong(1).ifPresent(id -> testHandler.handleTestTopic(internalUserId, messageId, id));
-                    break;
-                case CALLBACK_TEST_SECTION:
-                    cb.getLong(1).ifPresent(id -> testHandler.handleTestSection(internalUserId, messageId, id));
-                    break;
-                case CALLBACK_TEST_COURSE:
-                    cb.getLong(1).ifPresent(id -> testHandler.handleTestCourse(internalUserId, messageId, id));
-                    break;
-
-                // экспорт учебных материалов
-                case CALLBACK_EXPORT_TOPIC:
-                    courseNavHandler.handleExportTopic(internalUserId, messageId, payload);
-                    break;
-                case CALLBACK_EXPORT_SECTION:
-                    courseNavHandler.handleExportSection(internalUserId, messageId, payload);
-                    break;
-                case CALLBACK_EXPORT_COURSE:
-                    courseNavHandler.handleExportCourse(internalUserId, messageId, payload);
-                    break;
-
-                // администрирование курсов
-                case CALLBACK_CREATE_COURSE:
-                case CALLBACK_EDIT_COURSE:
-                case CALLBACK_DELETE_COURSE:
-                case CALLBACK_ADMIN_COURSES_MENU:
-                case CALLBACK_SELECT_COURSE_FOR_EDIT:
-                case CALLBACK_SELECT_COURSE_FOR_DELETE:
-                case CALLBACK_EDIT_COURSE_ACTION:
-                case CALLBACK_SELECT_SECTION_FOR_EDIT:
-                case CALLBACK_EDIT_SECTION_ACTION:
-                case CALLBACK_SELECT_TOPIC_FOR_EDIT:
-                case CALLBACK_CONFIRM_DELETE_COURSE:
-                case CALLBACK_RETRY:
-                case CALLBACK_ADMIN_COURSES_PAGE:
-                case CALLBACK_ADMIN_SECTIONS_PAGE:
-                case CALLBACK_ADMIN_TOPICS_PAGE:
-                case CALLBACK_ADMIN_BACK_TO_SECTIONS:
-                case CALLBACK_ADMIN_BACK_TO_TOPICS:
-                    if (!isAdmin(internalUserId)) return;
-                    adminHandler.handleAdminCallback(internalUserId, messageId, payload, vkPageSize);
-                    break;
-
-                // управление базой данных
-                case CALLBACK_ADMIN_DB:
-                    if (!isAdmin(internalUserId)) return;
-                    adminHandler.showDatabaseMenu(internalUserId, messageId);
-                    break;
-                case CALLBACK_BACKUP_NOW:
-                    if (!isAdmin(internalUserId)) return;
-                    adminHandler.performBackupNow(internalUserId, messageId);
-                    break;
-                case CALLBACK_RESTORE:
-                    if (!isAdmin(internalUserId)) return;
-                    adminHandler.showRestoreMenu(internalUserId, messageId);
-                    break;
-                case CALLBACK_RESTORE_SELECT:
-                    if (!isAdmin(internalUserId)) return;
-                    cb.getString(1).ifPresent(fileName ->
-                        adminHandler.restoreFromBackup(internalUserId, messageId, fileName));
-                    break;
-                case CALLBACK_UPLOAD_BACKUP_FILE:
-                    if (!isAdmin(internalUserId)) return;
-                    adminHandler.promptBackupFileUpload(internalUserId, messageId);
-                    break;
-                case CALLBACK_TOGGLE_MAINTENANCE:
-                    if (!isAdmin(internalUserId)) return;
-                    adminHandler.toggleMaintenanceMode(internalUserId, messageId);
-                    break;
-
-                // статистика
-                case CALLBACK_STATISTICS:
-                    if (cb.getString(1).filter(CALLBACK_BACK::equals).isPresent()) {
-                        deleteMessage(internalUserId, messageId);
-                        showStatistics(internalUserId, null);
-                    } else {
-                        showStatistics(internalUserId, messageId);
-                    }
-                    break;
-                case CALLBACK_EXPORT_PDF:
-                    handleExportPdf(internalUserId, vkUserId, messageId);
-                    break;
-                case CALLBACK_MY_MISTAKES:
-                    testHandler.handleMyMistakes(internalUserId, messageId);
-                    break;
-
-                // настройки
-                case CALLBACK_SETTINGS:
-                    settingsHandler.showSettingsMenu(internalUserId, messageId);
-                    break;
-                case CALLBACK_SETTINGS_SHUFFLE:
-                    settingsHandler.toggleShuffle(internalUserId, messageId);
-                    break;
-                case CALLBACK_SETTINGS_PAGESIZE:
-                    settingsHandler.showPageSizeOptions(internalUserId, messageId);
-                    break;
-                case CALLBACK_SETTINGS_PAGESIZE_OTHER:
-                    settingsHandler.promptPageSizeInput(internalUserId, messageId);
-                    break;
-                case CALLBACK_SETTINGS_QUESTIONS:
-                    settingsHandler.showQuestionsPerBlockOptions(internalUserId, messageId);
-                    break;
-                case CALLBACK_SETTINGS_EXPLANATIONS:
-                    settingsHandler.toggleExplanations(internalUserId, messageId);
-                    break;
-                case CALLBACK_SETTINGS_RESET:
-                    settingsHandler.confirmResetProgress(internalUserId, messageId);
-                    break;
-                case CALLBACK_SETTINGS_PAGESIZE_SET:
-                    cb.getInt(1).ifPresent(size -> settingsHandler.setPageSize(internalUserId, messageId, size));
-                    break;
-                case CALLBACK_SETTINGS_QUESTIONS_SET:
-                    cb.getInt(1).ifPresent(count ->
-                        settingsHandler.setQuestionsPerBlock(internalUserId, messageId, count));
-                    break;
-                case CALLBACK_SETTINGS_RESET_CONFIRM:
-                    settingsHandler.resetProgress(internalUserId, messageId);
-                    break;
-                case CALLBACK_SETTINGS_PDF_QUESTIONS:
-                    settingsHandler.togglePdfQuestions(internalUserId, messageId);
-                    break;
-
-                // привязка аккаунтов
-                case CALLBACK_LINK_GENERATE:
-                    linkHandler.generateCode(internalUserId, Platform.VK, sender);
-                    break;
-                case CALLBACK_LINK_KEEP_TELEGRAM:
-                    cb.getString(1).ifPresent(code ->
-                        linkHandler.resolveConflictKeepTelegram(internalUserId, code, Platform.VK, vkUserId, sender));
-                    break;
-                case CALLBACK_LINK_KEEP_VK:
-                    cb.getString(1).ifPresent(code ->
-                        linkHandler.resolveConflictKeepVk(internalUserId, code, Platform.VK, vkUserId, sender));
-                    break;
-                case CALLBACK_LINK_MERGE:
-                    cb.getString(1).ifPresent(code ->
-                        linkHandler.resolveConflictMerge(internalUserId, code, Platform.VK, vkUserId, sender));
-                    break;
-                case CALLBACK_LINK_MERGE_SETTINGS_TG:
-                    cb.getString(1).ifPresent(code ->
-                        linkHandler.finalizeMergeWithTelegramSettings(internalUserId, code, Platform.VK, vkUserId, sender));
-                    break;
-                case CALLBACK_LINK_MERGE_SETTINGS_VK:
-                    cb.getString(1).ifPresent(code ->
-                        linkHandler.finalizeMergeWithVkSettings(internalUserId, code, Platform.VK, vkUserId, sender));
-                    break;
-
-                // старые callback-и (для обратной совместимости)
-                case CALLBACK_LINK_RESOLVE_KEEP_THIS:
-                    cb.getString(1).ifPresent(code ->
-                        linkHandler.resolveConflictKeepTelegram(internalUserId, code, Platform.VK, vkUserId, sender));
-                    break;
-                case CALLBACK_LINK_RESOLVE_KEEP_OTHER:
-                    cb.getString(1).ifPresent(code ->
-                        linkHandler.resolveConflictKeepVk(internalUserId, code, Platform.VK, vkUserId, sender));
-                    break;
-
-                case CALLBACK_MAIN_MENU:
-                    sendMainMenu(internalUserId, messageId);
-                    sessionService.updateSessionState(internalUserId, BotState.MAIN_MENU);
-                    break;
-                case CALLBACK_BACK:
-                    handleBack(internalUserId, messageId);
-                    break;
-
-                default:
-                    log.warn("[VK] Unknown callback action: {}", action);
-            }
+            dispatcher.dispatchCallback(internalUserId, messageId, payload, Platform.VK,
+                    buildPlatformContext(internalUserId, vkUserId));
         }
+    }
+
+
+    private BotDispatcher.PlatformContext buildPlatformContext(long internalUserId, long vkUserId) {
+        return new BotDispatcher.PlatformContext() {
+            @Override public void sendMainMenu(Long uid, Integer msgId) {
+                VkBotHandler.this.sendMainMenu(uid, msgId);
+                sessionService.updateSessionState(uid, BotState.MAIN_MENU);
+            }
+            @Override public void handleBack(Long uid, Integer msgId) {
+                VkBotHandler.this.handleBack(uid, msgId);
+            }
+            @Override public void handleStatistics(Long uid, Integer msgId, boolean back) {
+                if (back) { deleteMessage(uid, msgId); showStatistics(uid, null); }
+                else { showStatistics(uid, msgId); }
+            }
+            @Override public void handleExportPdf(Long uid, Integer msgId) {
+                VkBotHandler.this.handleExportPdf(uid, vkUserId, msgId);
+            }
+            @Override public void handleLinkGenerate(Long uid) {
+                linkHandler.generateCode(uid, Platform.VK, sender);
+            }
+            @Override public void handleLinkCode(Long uid, String code) {
+                linkHandler.applyCode(uid, code, Platform.VK, vkUserId, sender);
+                sessionService.updateSessionState(uid, BotState.MAIN_MENU);
+            }
+            @Override public void handleLinkKeepTelegram(Long uid, String code) {
+                linkHandler.resolveConflictKeepTelegram(uid, code, Platform.VK, vkUserId, sender);
+            }
+            @Override public void handleLinkKeepVk(Long uid, String code) {
+                linkHandler.resolveConflictKeepVk(uid, code, Platform.VK, vkUserId, sender);
+            }
+            @Override public void handleLinkMerge(Long uid, String code) {
+                linkHandler.resolveConflictMerge(uid, code, Platform.VK, vkUserId, sender);
+            }
+            @Override public void handleLinkMergeSettingsTg(Long uid, String code) {
+                linkHandler.finalizeMergeWithTelegramSettings(uid, code, Platform.VK, vkUserId, sender);
+            }
+            @Override public void handleLinkMergeSettingsVk(Long uid, String code) {
+                linkHandler.finalizeMergeWithVkSettings(uid, code, Platform.VK, vkUserId, sender);
+            }
+            @Override public void notifyExpectingFile(Long uid) {
+                sender.sendText(vkUserId, "📁 Пожалуйста, отправьте файл резервной копии (дамп БД в формате .dump), а не текст.");
+            }
+        };
     }
 
     // ================== Приватные методы ==================

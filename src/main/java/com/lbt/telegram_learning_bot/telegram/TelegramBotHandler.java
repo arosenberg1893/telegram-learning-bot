@@ -1,6 +1,7 @@
 package com.lbt.telegram_learning_bot.telegram;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lbt.telegram_learning_bot.bot.BotDispatcher;
 import com.lbt.telegram_learning_bot.bot.BotState;
 import com.lbt.telegram_learning_bot.bot.UserContext;
 import com.lbt.telegram_learning_bot.bot.handler.*;
@@ -40,6 +41,7 @@ public class TelegramBotHandler extends BaseHandler {
     private final RateLimiterService rateLimiterService;
     private final SettingsHandler settingsHandler;
     private final TelegramBot telegramBot;
+    private final BotDispatcher dispatcher;
     private final KeyboardBuilder keyboardBuilder;
     private final ObjectMapper objectMapper;
     private final UserProgressCleanupService progressCleanupService;
@@ -129,6 +131,11 @@ public class TelegramBotHandler extends BaseHandler {
                 courseNavHandler, userSettingsService, maintenanceModeService);
         this.settingsHandler = new SettingsHandler(messageSender, sessionService, navigationService,
                 adminUserRepository, userSettingsService, progressCleanupService, maintenanceModeService);
+
+        // dispatcher создаётся последним — после инициализации всех хендлеров
+        this.dispatcher = new BotDispatcher(courseNavHandler, testHandler, adminHandler,
+                settingsHandler, linkHandler, sessionService, adminUserRepository,
+                userSettingsService, pdfExportService);
     }
 
     @Override
@@ -195,10 +202,6 @@ public class TelegramBotHandler extends BaseHandler {
             }
             if (text == null) return;
 
-            BotState currentState = sessionService.getCurrentState(userId);
-            log.debug("handleMessage: userId={}, state={}, text={}", userId, currentState,
-                    text.length() > 50 ? text.substring(0, 50) + "…" : text);
-
             if (text.equals("/start")) {
                 UserContext context = sessionService.getCurrentContext(userId);
                 context.setUserName(firstName);
@@ -210,38 +213,20 @@ public class TelegramBotHandler extends BaseHandler {
 
             if (text.startsWith("/link")) {
                 String[] parts = text.split("\\s+", 2);
+                BotDispatcher.PlatformContext ctx = buildPlatformContext(userId, externalUserId);
                 if (parts.length == 2 && !parts[1].isBlank()) {
-                    linkHandler.applyCode(userId, parts[1], Platform.TELEGRAM, externalUserId,
-                            new TelegramMessageSenderAdapter(telegramBot, sessionService, userId));
+                    ctx.handleLinkCode(userId, parts[1]);
                 } else {
-                    linkHandler.generateCode(userId, Platform.TELEGRAM,
-                            new TelegramMessageSenderAdapter(telegramBot, sessionService, userId));
+                    ctx.handleLinkGenerate(userId);
                 }
                 return;
             }
 
-            switch (currentState) {
-                case MAIN_MENU:
-                    break;
-                case AWAITING_SEARCH_QUERY:
-                    int pageSize = userSettingsService.getSettings(userId).getPageSize();
-                    courseNavHandler.handleSearchQuery(userId, text, pageSize);
-                    break;
-                case AWAITING_LINK_CODE:
-                    linkHandler.applyCode(userId, text, Platform.TELEGRAM, externalUserId,
-                            new TelegramMessageSenderAdapter(telegramBot, sessionService, userId));
-                    sessionService.updateSessionState(userId, BotState.MAIN_MENU);
-                    break;
-                case AWAITING_PAGE_SIZE_INPUT:
-                    settingsHandler.handlePageSizeInput(userId, text, message.messageId());
-                    break;
-                case AWAITING_BACKUP_FILE:
-                    sendMessage(userId, "📁 Пожалуйста, отправьте файл резервной копии (дамп БД в формате .dump), а не текст.");
-                    break;
-                default:
-                    sendMainMenu(userId, message.messageId());
-                    sessionService.updateSessionState(userId, BotState.MAIN_MENU);
-            }
+            log.debug("handleMessage: userId={}, state={}, text={}", userId,
+                    sessionService.getCurrentState(userId),
+                    text.length() > 50 ? text.substring(0, 50) + "…" : text);
+
+            dispatcher.dispatchMessage(userId, text, buildPlatformContext(userId, externalUserId));
         }
     }
 
@@ -264,262 +249,61 @@ public class TelegramBotHandler extends BaseHandler {
             Integer messageId = callbackQuery.message().messageId();
             log.debug("Callback from user {}: {}", userId, data);
 
-            String[] parts = data.split(":", 3);
-            String action = parts[0];
-            int pageSize = userSettingsService.getSettings(userId).getPageSize();
-
-            switch (action) {
-                // навигация
-                case CALLBACK_MY_COURSES:
-                    courseNavHandler.handleMyCourses(userId, messageId, 0, pageSize);
-                    break;
-                case CALLBACK_ALL_COURSES:
-                    courseNavHandler.handleAllCourses(userId, messageId, 0, pageSize);
-                    break;
-                case CALLBACK_SEARCH_COURSES:
-                    courseNavHandler.promptSearch(userId, messageId);
-                    break;
-                case CALLBACK_COURSES_PAGE:
-                    courseNavHandler.handleCoursesPage(userId, messageId, parts[1], Integer.parseInt(parts[2]), pageSize);
-                    break;
-                case CALLBACK_SELECT_COURSE:
-                    courseNavHandler.handleSelectCourse(userId, messageId, Long.parseLong(parts[1]), pageSize);
-                    break;
-                case CALLBACK_SELECT_SECTION:
-                    courseNavHandler.handleSelectSection(userId, messageId, Long.parseLong(parts[1]), pageSize);
-                    break;
-                case CALLBACK_SELECT_TOPIC:
-                    courseNavHandler.handleSelectTopic(userId, messageId, Long.parseLong(parts[1]));
-                    break;
-                case CALLBACK_SECTIONS_PAGE:
-                    courseNavHandler.handleSectionsPage(userId, messageId, Long.parseLong(parts[1]), Integer.parseInt(parts[2]), pageSize);
-                    break;
-                case CALLBACK_TOPICS_PAGE:
-                    courseNavHandler.handleTopicsPage(userId, messageId, Long.parseLong(parts[1]), Integer.parseInt(parts[2]), pageSize);
-                    break;
-                case CALLBACK_BACK_TO_COURSES:
-                    BotState state = sessionService.getCurrentState(userId);
-                    if (state.isAdminEditState()) {
-                        adminHandler.handleBackToCoursesFromEdit(userId, messageId, pageSize);
-                    } else {
-                        courseNavHandler.handleBackToCourses(userId, messageId, pageSize);
-                    }
-                    break;
-                case CALLBACK_BACK_TO_SECTIONS:
-                    courseNavHandler.handleBackToSections(userId, messageId, pageSize);
-                    break;
-                case CALLBACK_BACK_TO_TOPICS:
-                    courseNavHandler.handleBackToTopics(userId, messageId, pageSize);
-                    break;
-                case CALLBACK_NEXT_BLOCK:
-                    courseNavHandler.handleNextBlock(userId, messageId);
-                    break;
-                case CALLBACK_PREV_BLOCK:
-                    courseNavHandler.handlePrevBlock(userId, messageId);
-                    break;
-                case CALLBACK_NEXT_QUESTION:
-                    testHandler.handleNextQuestion(userId, messageId);
-                    break;
-                case CALLBACK_PREV_QUESTION:
-                    testHandler.handlePrevQuestion(userId, messageId);
-                    break;
-                case CALLBACK_ANSWER:
-                    testHandler.handleAnswer(userId, messageId, Long.parseLong(parts[1]), Long.parseLong(parts[2]));
-                    break;
-                case CALLBACK_BACK_TO_BLOCK_TEXT:
-                    testHandler.handleBackToBlockText(userId, messageId);
-                    break;
-
-                // тесты
-                case CALLBACK_TEST_TOPIC:
-                    testHandler.handleTestTopic(userId, messageId, Long.parseLong(parts[1]));
-                    break;
-                case CALLBACK_TEST_SECTION:
-                    testHandler.handleTestSection(userId, messageId, Long.parseLong(parts[1]));
-                    break;
-                case CALLBACK_TEST_COURSE:
-                    testHandler.handleTestCourse(userId, messageId, Long.parseLong(parts[1]));
-                    break;
-
-                // экспорт учебных материалов
-                case CALLBACK_EXPORT_TOPIC:
-                    courseNavHandler.handleExportTopic(userId, messageId, data);
-                    break;
-                case CALLBACK_EXPORT_SECTION:
-                    courseNavHandler.handleExportSection(userId, messageId, data);
-                    break;
-                case CALLBACK_EXPORT_COURSE:
-                    courseNavHandler.handleExportCourse(userId, messageId, data);
-                    break;
-
-                // администрирование курсов
-                case CALLBACK_CREATE_COURSE:
-                case CALLBACK_EDIT_COURSE:
-                case CALLBACK_DELETE_COURSE:
-                case CALLBACK_ADMIN_COURSES_MENU:
-                case CALLBACK_SELECT_COURSE_FOR_EDIT:
-                case CALLBACK_SELECT_COURSE_FOR_DELETE:
-                case CALLBACK_EDIT_COURSE_ACTION:
-                case CALLBACK_SELECT_SECTION_FOR_EDIT:
-                case CALLBACK_EDIT_SECTION_ACTION:
-                case CALLBACK_SELECT_TOPIC_FOR_EDIT:
-                case CALLBACK_CONFIRM_DELETE_COURSE:
-                case CALLBACK_RETRY:
-                case CALLBACK_ADMIN_COURSES_PAGE:
-                case CALLBACK_ADMIN_SECTIONS_PAGE:
-                case CALLBACK_ADMIN_TOPICS_PAGE:
-                case CALLBACK_ADMIN_BACK_TO_SECTIONS:
-                case CALLBACK_ADMIN_BACK_TO_TOPICS:
-                    if (!isAdmin(userId)) return;
-                    adminHandler.handleAdminCallback(userId, messageId, data, pageSize);
-                    break;
-
-                // управление базой данных
-                case CALLBACK_ADMIN_DB:
-                    if (!isAdmin(userId)) return;
-                    adminHandler.showDatabaseMenu(userId, messageId);
-                    break;
-                case CALLBACK_BACKUP_NOW:
-                    if (!isAdmin(userId)) return;
-                    adminHandler.performBackupNow(userId, messageId);
-                    break;
-                case CALLBACK_RESTORE:
-                    if (!isAdmin(userId)) return;
-                    adminHandler.showRestoreMenu(userId, messageId);
-                    break;
-                case CALLBACK_RESTORE_SELECT:
-                    if (!isAdmin(userId)) return;
-                    adminHandler.restoreFromBackup(userId, messageId, parts[1]);
-                    break;
-                case CALLBACK_UPLOAD_BACKUP_FILE:
-                    if (!isAdmin(userId)) return;
-                    adminHandler.promptBackupFileUpload(userId, messageId);
-                    break;
-                case CALLBACK_TOGGLE_MAINTENANCE:
-                    if (!isAdmin(userId)) return;
-                    adminHandler.toggleMaintenanceMode(userId, messageId);
-                    break;
-
-                // статистика и ошибки
-                case CALLBACK_STATISTICS:
-                    if (parts.length > 1 && CALLBACK_BACK.equals(parts[1])) {
-                        deleteMessage(userId, messageId);
-                        showStatistics(userId, null);
-                    } else {
-                        showStatistics(userId, messageId);
-                    }
-                    break;
-                case CALLBACK_EXPORT_PDF:
-                    handleExportPdf(userId, messageId);
-                    break;
-                case CALLBACK_MY_MISTAKES:
-                    testHandler.handleMyMistakes(userId, messageId);
-                    break;
-
-                // общие
-                case CALLBACK_MAIN_MENU:
-                    sendMainMenu(userId, messageId);
-                    sessionService.updateSessionState(userId, BotState.MAIN_MENU);
-                    break;
-                case CALLBACK_BACK:
-                    handleBack(userId, messageId);
-                    break;
-
-                // настройки
-                case CALLBACK_SETTINGS:
-                    settingsHandler.showSettingsMenu(userId, messageId);
-                    break;
-                case CALLBACK_SETTINGS_SHUFFLE:
-                    settingsHandler.toggleShuffle(userId, messageId);
-                    break;
-                case CALLBACK_SETTINGS_PAGESIZE:
-                    settingsHandler.showPageSizeOptions(userId, messageId);
-                    break;
-                case CALLBACK_SETTINGS_PAGESIZE_OTHER:
-                    settingsHandler.promptPageSizeInput(userId, messageId);
-                    break;
-                case CALLBACK_SETTINGS_QUESTIONS:
-                    settingsHandler.showQuestionsPerBlockOptions(userId, messageId);
-                    break;
-                case CALLBACK_SETTINGS_EXPLANATIONS:
-                    settingsHandler.toggleExplanations(userId, messageId);
-                    break;
-                case CALLBACK_SETTINGS_RESET:
-                    settingsHandler.confirmResetProgress(userId, messageId);
-                    break;
-                case CALLBACK_SETTINGS_PAGESIZE_SET:
-                    if (parts.length >= 2) {
-                        int size = Integer.parseInt(parts[1]);
-                        settingsHandler.setPageSize(userId, messageId, size);
-                    }
-                    break;
-                case CALLBACK_SETTINGS_QUESTIONS_SET:
-                    if (parts.length >= 2) {
-                        int count = Integer.parseInt(parts[1]);
-                        settingsHandler.setQuestionsPerBlock(userId, messageId, count);
-                    }
-                    break;
-                case CALLBACK_SETTINGS_RESET_CONFIRM:
-                    settingsHandler.resetProgress(userId, messageId);
-                    break;
-                case CALLBACK_SETTINGS_PDF_QUESTIONS:
-                    settingsHandler.togglePdfQuestions(userId, messageId);
-                    break;
-
-                // привязка аккаунтов
-                case CALLBACK_LINK_GENERATE:
-                    linkHandler.generateCode(userId, Platform.TELEGRAM,
-                            new TelegramMessageSenderAdapter(telegramBot, sessionService, userId));
-                    break;
-                case CALLBACK_LINK_KEEP_TELEGRAM:
-                    if (parts.length >= 2) {
-                        linkHandler.resolveConflictKeepTelegram(userId, parts[1], Platform.TELEGRAM, externalUserId,
-                                new TelegramMessageSenderAdapter(telegramBot, sessionService, userId));
-                    }
-                    break;
-                case CALLBACK_LINK_KEEP_VK:
-                    if (parts.length >= 2) {
-                        linkHandler.resolveConflictKeepVk(userId, parts[1], Platform.TELEGRAM, externalUserId,
-                                new TelegramMessageSenderAdapter(telegramBot, sessionService, userId));
-                    }
-                    break;
-                case CALLBACK_LINK_MERGE:
-                    if (parts.length >= 2) {
-                        linkHandler.resolveConflictMerge(userId, parts[1], Platform.TELEGRAM, externalUserId,
-                                new TelegramMessageSenderAdapter(telegramBot, sessionService, userId));
-                    }
-                    break;
-                case CALLBACK_LINK_MERGE_SETTINGS_TG:
-                    if (parts.length >= 2) {
-                        linkHandler.finalizeMergeWithTelegramSettings(userId, parts[1], Platform.TELEGRAM, externalUserId,
-                                new TelegramMessageSenderAdapter(telegramBot, sessionService, userId));
-                    }
-                    break;
-                case CALLBACK_LINK_MERGE_SETTINGS_VK:
-                    if (parts.length >= 2) {
-                        linkHandler.finalizeMergeWithVkSettings(userId, parts[1], Platform.TELEGRAM, externalUserId,
-                                new TelegramMessageSenderAdapter(telegramBot, sessionService, userId));
-                    }
-                    break;
-
-                // старые callback-и (для обратной совместимости)
-                case CALLBACK_LINK_RESOLVE_KEEP_THIS:
-                    if (parts.length >= 2) {
-                        linkHandler.resolveConflictKeepTelegram(userId, parts[1], Platform.TELEGRAM, externalUserId,
-                                new TelegramMessageSenderAdapter(telegramBot, sessionService, userId));
-                    }
-                    break;
-                case CALLBACK_LINK_RESOLVE_KEEP_OTHER:
-                    if (parts.length >= 2) {
-                        linkHandler.resolveConflictKeepVk(userId, parts[1], Platform.TELEGRAM, externalUserId,
-                                new TelegramMessageSenderAdapter(telegramBot, sessionService, userId));
-                    }
-                    break;
-
-                default:
-                    log.warn("Unknown callback action: {}", action);
-            }
+            dispatcher.dispatchCallback(userId, messageId, data, Platform.TELEGRAM,
+                    buildPlatformContext(userId, externalUserId));
         }
+    }
+
+    private BotDispatcher.PlatformContext buildPlatformContext(Long userId, Long externalUserId) {
+        return new BotDispatcher.PlatformContext() {
+            @Override public void sendMainMenu(Long uid, Integer msgId) {
+                TelegramBotHandler.this.sendMainMenu(uid, msgId);
+                sessionService.updateSessionState(uid, BotState.MAIN_MENU);
+            }
+            @Override public void handleBack(Long uid, Integer msgId) {
+                TelegramBotHandler.this.handleBack(uid, msgId);
+            }
+            @Override public void handleStatistics(Long uid, Integer msgId, boolean back) {
+                if (back) { deleteMessage(uid, msgId); showStatistics(uid, null); }
+                else { showStatistics(uid, msgId); }
+            }
+            @Override public void handleExportPdf(Long uid, Integer msgId) {
+                TelegramBotHandler.this.handleExportPdf(uid, msgId);
+            }
+            @Override public void handleLinkGenerate(Long uid) {
+                linkHandler.generateCode(uid, Platform.TELEGRAM,
+                        new TelegramMessageSenderAdapter(telegramBot, sessionService, uid));
+            }
+            @Override public void handleLinkCode(Long uid, String code) {
+                linkHandler.applyCode(uid, code, Platform.TELEGRAM, externalUserId,
+                        new TelegramMessageSenderAdapter(telegramBot, sessionService, uid));
+                sessionService.updateSessionState(uid, BotState.MAIN_MENU);
+            }
+            @Override public void handleLinkKeepTelegram(Long uid, String code) {
+                linkHandler.resolveConflictKeepTelegram(uid, code, Platform.TELEGRAM, externalUserId,
+                        new TelegramMessageSenderAdapter(telegramBot, sessionService, uid));
+            }
+            @Override public void handleLinkKeepVk(Long uid, String code) {
+                linkHandler.resolveConflictKeepVk(uid, code, Platform.TELEGRAM, externalUserId,
+                        new TelegramMessageSenderAdapter(telegramBot, sessionService, uid));
+            }
+            @Override public void handleLinkMerge(Long uid, String code) {
+                linkHandler.resolveConflictMerge(uid, code, Platform.TELEGRAM, externalUserId,
+                        new TelegramMessageSenderAdapter(telegramBot, sessionService, uid));
+            }
+            @Override public void handleLinkMergeSettingsTg(Long uid, String code) {
+                linkHandler.finalizeMergeWithTelegramSettings(uid, code, Platform.TELEGRAM, externalUserId,
+                        new TelegramMessageSenderAdapter(telegramBot, sessionService, uid));
+            }
+            @Override public void handleLinkMergeSettingsVk(Long uid, String code) {
+                linkHandler.finalizeMergeWithVkSettings(uid, code, Platform.TELEGRAM, externalUserId,
+                        new TelegramMessageSenderAdapter(telegramBot, sessionService, uid));
+            }
+            @Override public void notifyExpectingFile(Long uid) {
+                TelegramBotHandler.this.sendMessage(uid,
+                        "📁 Пожалуйста, отправьте файл резервной копии (дамп БД в формате .dump), а не текст.");
+            }
+        };
     }
 
     private void handleBack(Long userId, Integer messageId) {
