@@ -176,4 +176,12 @@ public class UserSessionService {
         if (ctx.getCurrentTopicBlockIds() == null)    ctx.setCurrentTopicBlockIds(new ArrayList<>());
         if (ctx.getCurrentBlockQuestionIds() == null) ctx.setCurrentBlockQuestionIds(new ArrayList<>());
     }
+
+    /**
+     * Принудительно удаляет сессию пользователя из кэша.
+     * Следующий вызов getOrCreateSession() обратится в БД.
+     */
+    public void evictFromCache(Long userId) {
+        sessionCache.remove(userId);
+    }
 }

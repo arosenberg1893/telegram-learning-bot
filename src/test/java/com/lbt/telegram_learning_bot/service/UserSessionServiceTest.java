@@ -146,7 +146,7 @@ class UserSessionServiceTest {
         when(sessionRepository.findById(userId)).thenReturn(Optional.of(existing));
 
         sessionService.getOrCreateSession(userId); // кэшируем
-        sessionService.evictFromCache(userId);     // инвалидируем
+        sessionService.clearSession(userId);     // инвалидируем
         sessionService.getCurrentState(userId);    // должно идти в БД снова
 
         verify(sessionRepository, times(2)).findById(userId);
